@@ -10,3 +10,4 @@ google-oauth2-tool==1.0.1
 google-auth==2.22.0
 google-api-python-client==2.88.0
 google-auth-httplib2==0.1.0
+earthengine-api==0.1.348 geemap==0.19.5
