@@ -10,7 +10,8 @@ from io import BytesIO
 import random
 import os
 import sys
-import subprocess
+from google.oauth2 import service_account
+from ee import oauth
 
 # Configuración de la página
 st.set_page_config(
@@ -24,21 +25,12 @@ st.title("Consulta RENSPA desde SENASA")
 
 # Detectar entorno Streamlit Cloud
 is_cloud = os.environ.get('SUDO_USER') == 'adminuser' or 'STREAMLIT_RUNTIME' in os.environ
-
-# Intentar instalar dependencias si es necesario
-def instalar_dependencia(paquete, version=None):
-    paquete_version = f"{paquete}=={version}" if version else paquete
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", paquete_version])
-        return True
-    except:
-        return False
+st.sidebar.write(f"Ejecutando en Streamlit Cloud: {is_cloud}")
 
 # Verificación de dependencias al inicio
 with st.sidebar:
     st.sidebar.title("Diagnóstico del Sistema")
     st.sidebar.write(f"Python version: {sys.version}")
-    st.sidebar.write(f"Ejecutando en Streamlit Cloud: {is_cloud}")
     
     # Intentar cargar folium
     folium_disponible = False
@@ -46,26 +38,21 @@ with st.sidebar:
         import folium
         from folium.plugins import MeasureControl, MiniMap, MarkerCluster
         from streamlit_folium import folium_static
-        st.sidebar.success(f"✅ Folium {folium.__version__} disponible")
+        st.sidebar.success(f"✅ Folium disponible")
         folium_disponible = True
     except ImportError as e:
         st.sidebar.error(f"❌ Folium no disponible: {str(e)}")
-        st.sidebar.info("Para instalar Folium: pip install folium==0.14.0 streamlit-folium==0.13.0")
-        # Intentar instalar en tiempo de ejecución
-        if st.sidebar.button("Intentar instalar Folium"):
-            with st.spinner("Instalando Folium..."):
-                if instalar_dependencia("folium", "0.14.0") and instalar_dependencia("streamlit-folium", "0.13.0"):
-                    st.sidebar.success("✅ Folium instalado. Por favor, reinicia la aplicación.")
-                    st.stop()
-                else:
-                    st.sidebar.error("❌ No se pudo instalar Folium")
+        st.sidebar.info("Para instalar Folium: folium==0.14.0 streamlit-folium==0.13.0")
 
-    # Intentar cargar Earth Engine
+    # Intentar cargar Earth Engine y geemap
     ee_disponible = False
     ee_inicializado = False
+    geemap_disponible = False
+    
     try:
         import ee
         st.sidebar.success(f"✅ Earth Engine API disponible")
+        ee_disponible = True
         
         # Ahora intentar importar geemap
         try:
@@ -73,13 +60,13 @@ with st.sidebar:
             try:
                 version = geemap.__version__
                 st.sidebar.success(f"✅ Geemap {version} disponible")
+                geemap_disponible = True
             except:
                 st.sidebar.success(f"✅ Geemap disponible (versión desconocida)")
+                geemap_disponible = True
                 
-            ee_disponible = True
-            
-            # Inicialización de Earth Engine solo si tenemos los módulos
-            if ee_disponible:
+            # Inicialización de Earth Engine
+            if ee_disponible and geemap_disponible:
                 try:
                     # Si estamos en Streamlit Cloud y hay credenciales, usarlas
                     if is_cloud and hasattr(st, 'secrets'):
@@ -91,18 +78,28 @@ with st.sidebar:
                         elif 'gcp_service_account' in st.secrets:
                             st.sidebar.info("Usando cuenta de servicio para autenticación")
                             credentials_dict = st.secrets["gcp_service_account"]
-                            if 'private_key' in credentials_dict:
-                                credentials_dict['private_key'] = credentials_dict['private_key'].replace('\\n', '\n')
                             
-                            credentials = ee.ServiceAccountCredentials(
-                                email=credentials_dict["client_email"],
-                                key_data=json.dumps(credentials_dict)
+                            # Asegurarse de que los saltos de línea estén correctos
+                            if 'private_key' in credentials_dict and isinstance(credentials_dict["private_key"], str):
+                                credentials_dict["private_key"] = credentials_dict["private_key"].replace('\\n', '\n')
+                            
+                            # Usar la autenticación de service_account en lugar de ee.ServiceAccountCredentials
+                            credentials = service_account.Credentials.from_service_account_info(
+                                credentials_dict, scopes=oauth.SCOPES
                             )
+                            
                             ee.Initialize(credentials)
                             ee_inicializado = True
                             st.sidebar.success("✅ Earth Engine inicializado con cuenta de servicio")
                         else:
                             st.sidebar.warning("⚠️ No se encontraron credenciales para Earth Engine")
+                            # Intentar inicializar de todos modos con geemap
+                            try:
+                                geemap.ee_initialize()
+                                ee_inicializado = True
+                                st.sidebar.success("✅ Earth Engine inicializado automáticamente")
+                            except Exception as ee_auto_error:
+                                st.sidebar.error(f"❌ No se pudo inicializar automáticamente: {str(ee_auto_error)}")
                     else:
                         # Inicialización en entorno local
                         try:
@@ -111,23 +108,33 @@ with st.sidebar:
                             st.sidebar.success("✅ Earth Engine inicializado (local)")
                         except Exception as e:
                             st.sidebar.error(f"❌ No se pudo inicializar Earth Engine: {str(e)}")
+                            try:
+                                geemap.ee_initialize()
+                                ee_inicializado = True
+                                st.sidebar.success("✅ Earth Engine inicializado con geemap")
+                            except Exception as ee_error:
+                                st.sidebar.error(f"❌ No se pudo inicializar con geemap: {str(ee_error)}")
+                            
+                    # Verificar que Earth Engine funciona
+                    if ee_inicializado:
+                        try:
+                            image = ee.Image('USGS/SRTMGL1_003')
+                            info = image.getInfo()
+                            st.sidebar.success("✅ Operación Earth Engine exitosa")
+                        except Exception as ee_error:
+                            st.sidebar.error(f"❌ Earth Engine inicializado pero falló operación: {str(ee_error)}")
+                            ee_inicializado = False
+                            
                 except Exception as init_error:
                     st.sidebar.error(f"❌ Error al inicializar Earth Engine: {str(init_error)}")
         
         except ImportError as geemap_error:
             st.sidebar.error(f"❌ Geemap no disponible: {str(geemap_error)}")
+            st.sidebar.info("Instala geemap con: geemap==0.19.5")
             
     except ImportError as ee_error:
         st.sidebar.error(f"❌ Earth Engine API no disponible: {str(ee_error)}")
-        st.sidebar.info("Para instalar Earth Engine: pip install earthengine-api==0.1.348 geemap==0.20.6")
-        # Intentar instalar en tiempo de ejecución
-        if st.sidebar.button("Intentar instalar Earth Engine"):
-            with st.spinner("Instalando Earth Engine y Geemap..."):
-                if instalar_dependencia("earthengine-api", "0.1.348") and instalar_dependencia("geemap", "0.20.6"):
-                    st.sidebar.success("✅ Earth Engine y Geemap instalados. Por favor, reinicia la aplicación.")
-                    st.stop()
-                else:
-                    st.sidebar.error("❌ No se pudo instalar Earth Engine")
+        st.sidebar.info("Instala Earth Engine API con: earthengine-api==0.1.348")
 
 # Modo de depuración avanzado
 with st.sidebar:
@@ -138,38 +145,213 @@ with st.sidebar:
         st.sidebar.markdown("---")
         st.sidebar.write("**Información de diagnóstico avanzada:**")
         st.sidebar.write(f"- Earth Engine importado: {ee_disponible}")
+        st.sidebar.write(f"- Geemap disponible: {geemap_disponible}")
         st.sidebar.write(f"- Earth Engine inicializado: {ee_inicializado}")
-        
-        # Detalles del entorno
-        st.sidebar.write("**Variables de entorno:**")
-        env_vars = dict(os.environ)
-        # Filtrar solo las variables seguras/relevantes
-        safe_vars = {k: v for k, v in env_vars.items() if 'key' not in k.lower() and 'token' not in k.lower() and 'secret' not in k.lower() and 'password' not in k.lower()}
-        if st.sidebar.checkbox("Mostrar variables de entorno", value=False):
-            st.sidebar.json(safe_vars)
         
         # Detalles de secrets (sin mostrar valores sensibles)
         if is_cloud and hasattr(st, 'secrets') and st.secrets:
             st.sidebar.write("**Configuración de Secrets:**")
             secret_keys = list(st.secrets.keys()) if hasattr(st, 'secrets') else []
             st.sidebar.write(f"Claves configuradas: {', '.join(secret_keys)}")
+            
+            # Verificar estructura específica de las credenciales
+            if 'gcp_service_account' in st.secrets:
+                service_account_keys = list(st.secrets['gcp_service_account'].keys())
+                st.sidebar.write(f"La cuenta de servicio contiene: {', '.join(service_account_keys)}")
+                
+                # Verificar campos obligatorios
+                required_fields = ['client_email', 'private_key', 'project_id']
+                missing_fields = [field for field in required_fields if field not in service_account_keys]
+                
+                if missing_fields:
+                    st.sidebar.warning(f"⚠️ Faltan campos en la cuenta de servicio: {', '.join(missing_fields)}")
+                else:
+                    st.sidebar.success("✅ La cuenta de servicio contiene todos los campos requeridos")
 
 # Configuraciones globales
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
 TIEMPO_ESPERA = 0.5  # Pausa entre peticiones para no sobrecargar la API
 
-# Introducción
-st.markdown(f"""
-Esta herramienta permite:
+# Función para crear mapa geemap
+def crear_mapa_geemap(poligonos=None, center=None):
+    """
+    Crea un mapa interactivo usando geemap para visualizar polígonos
+    
+    Args:
+        poligonos: Lista de diccionarios con información de polígonos
+        center: Coordenadas del centro del mapa (opcional)
+    
+    Returns:
+        Objeto de mapa geemap
+    """
+    # Crear mapa base
+    if center:
+        m = geemap.Map(center=[center[1], center[0]], zoom_start=10)  # [lat, lon]
+    elif poligonos and len(poligonos) > 0:
+        # Usar el primer polígono como centro
+        center_lat = poligonos[0]['coords'][0][1]  # Latitud 
+        center_lon = poligonos[0]['coords'][0][0]  # Longitud
+        m = geemap.Map(center=[center_lat, center_lon], zoom_start=10)
+    else:
+        # Centrar en Argentina
+        m = geemap.Map(center=[-34.603722, -58.381592], zoom_start=4)
+    
+    # Añadir capas base
+    m.add_basemap("HYBRID")  # Google Hybrid
+    
+    # Añadir polígonos si existen
+    if poligonos:
+        # Crear una lista de features GEE
+        features = []
+        for i, pol in enumerate(poligonos):
+            if 'coords' in pol:
+                # Crear un polígono ee
+                ee_coords = [[coord[0], coord[1]] for coord in pol['coords']]  # [lon, lat] para EE
+                ee_polygon = ee.Geometry.Polygon([ee_coords])
+                
+                # Crear feature con propiedades
+                properties = {
+                    'id': i,
+                    'renspa': pol.get('renspa', 'N/A'),
+                    'titular': pol.get('titular', 'No disponible'),
+                    'localidad': pol.get('localidad', 'No disponible'),
+                    'superficie': pol.get('superficie', 0)
+                }
+                
+                feat = ee.Feature(ee_polygon, properties)
+                features.append(feat)
+        
+        # Crear FeatureCollection y añadirlo al mapa
+        if features:
+            fc = ee.FeatureCollection(features)
+            m.add_layer(fc, {'color': 'green'}, "Polígonos RENSPA")
+    
+    # Añadir herramientas
+    m.add_draw_control()
+    m.add_layer_control()
+    m.add_scale()
+    
+    return m
 
-1. Consultar todos los RENSPA asociados a un CUIT en la base de datos de SENASA
-2. Visualizar los polígonos de los campos en un mapa interactivo
-3. Descargar los datos en formato KMZ/GeoJSON para su uso en sistemas GIS
-""")
+# Función para crear mapa con múltiples mejoras usando folium (respaldo)
+def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
+    """
+    Crea un mapa folium mejorado con los polígonos proporcionados
+    
+    Args:
+        poligonos: Lista de diccionarios con los datos de polígonos
+        center: Coordenadas del centro del mapa (opcional)
+        cuit_colors: Diccionario de colores por CUIT (opcional)
+        
+    Returns:
+        Objeto mapa de folium
+    """
+    if not folium_disponible:
+        st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium==0.14.0 streamlit-folium==0.13.0")
+        return None
+    
+    # Determinar centro del mapa
+    if center:
+        # Usar centro proporcionado
+        center_lat, center_lon = center
+    elif poligonos:
+        # Usar el primer polígono como referencia
+        center_lat = poligonos[0]['coords'][0][1]  # Latitud está en la segunda posición
+        center_lon = poligonos[0]['coords'][0][0]  # Longitud está en la primera posición
+    else:
+        # Centro predeterminado (Buenos Aires)
+        center_lat = -34.603722
+        center_lon = -58.381592
+    
+    # Crear mapa base
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+    
+    # Añadir diferentes capas base con atribución para evitar errores
+    folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
+                    name='Google Hybrid', 
+                    attr='Google').add_to(m)
+    folium.TileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', 
+                    name='Google Satellite', 
+                    attr='Google').add_to(m)
+    folium.TileLayer('OpenStreetMap', name='OpenStreetMap').add_to(m)
+    
+    # Añadir herramienta de medición si está disponible
+    try:
+        MeasureControl(position='topright', 
+                      primary_length_unit='kilometers', 
+                      secondary_length_unit='miles', 
+                      primary_area_unit='hectares').add_to(m)
+    except:
+        pass
+    
+    # Añadir mini mapa si está disponible
+    try:
+        MiniMap().add_to(m)
+    except:
+        pass
+    
+    # Crear grupos de capas para mejor organización
+    fg_poligonos = folium.FeatureGroup(name="Polígonos RENSPA").add_to(m)
+    
+    # Añadir cada polígono al mapa
+    for pol in poligonos:
+        # Determinar color según CUIT si está disponible
+        if cuit_colors and 'cuit' in pol and pol['cuit'] in cuit_colors:
+            color = cuit_colors[pol['cuit']]
+        else:
+            color = 'green'
+        
+        # Formatear popup con información
+        popup_text = f"""
+        <b>RENSPA:</b> {pol['renspa']}<br>
+        <b>Titular:</b> {pol.get('titular', 'No disponible')}<br>
+        <b>Localidad:</b> {pol.get('localidad', 'No disponible')}<br>
+        <b>Superficie:</b> {pol.get('superficie', 0)} ha
+        """
+        if 'cuit' in pol:
+            popup_text += f"<br><b>CUIT:</b> {pol['cuit']}"
+        
+        # Añadir polígono al mapa
+        folium.Polygon(
+            locations=[[coord[1], coord[0]] for coord in pol['coords']],  # Invertir coordenadas para folium
+            color=color,
+            weight=2,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.3,
+            tooltip=f"RENSPA: {pol['renspa']}",
+            popup=popup_text
+        ).add_to(fg_poligonos)
+    
+    # Añadir control de capas
+    folium.LayerControl(position='topright').add_to(m)
+    
+    return m
 
-# Si Earth Engine está disponible, añadir esa funcionalidad a la introducción
-if ee_disponible and ee_inicializado:
-    st.markdown("4. Analizar los cultivos históricos de los campos (usando Google Earth Engine)")
+# Función para mostrar mapa (usando geemap o folium según disponibilidad)
+def mostrar_mapa(poligonos=None, center=None):
+    """
+    Muestra el mapa usando geemap (preferido) o folium (respaldo)
+    
+    Args:
+        poligonos: Lista de diccionarios con información de polígonos
+        center: Coordenadas del centro del mapa (opcional)
+    """
+    try:
+        if geemap_disponible and ee_inicializado:
+            # Usar geemap con Earth Engine
+            st.write("Visualización con Google Earth Engine:")
+            m = crear_mapa_geemap(poligonos, center)
+            m.to_streamlit(height=600)
+        elif folium_disponible:
+            # Fallback a folium
+            st.write("Visualización con Folium:")
+            m = crear_mapa_mejorado(poligonos, center)
+            folium_static(m, width=1000, height=600)
+        else:
+            st.error("No hay mapas disponibles. Se requiere instalar folium o geemap.")
+    except Exception as e:
+        st.error(f"Error al mostrar el mapa: {str(e)}")
 
 # Función para crear análisis de cultivos con Earth Engine
 def crear_analisis_cultivos(poligonos):
@@ -181,74 +363,109 @@ def crear_analisis_cultivos(poligonos):
     """
     if not ee_disponible:
         st.error("Google Earth Engine no está disponible. Instala las dependencias necesarias.")
-        st.info("Ejecuta: pip install earthengine-api==0.1.348 geemap==0.20.6")
+        st.info("Ejecuta: pip install earthengine-api==0.1.348 geemap==0.19.5")
         return
     
     if not ee_inicializado:
         st.error("Google Earth Engine no está inicializado correctamente.")
-        st.info("Verifica las credenciales o ejecuta: earthengine authenticate")
+        st.info("Verifica las credenciales en Streamlit Cloud.")
         return
     
     try:
         # Crear un mapa de Earth Engine
         m = geemap.Map()
+        m.add_basemap("HYBRID")
         
-        # Añadir control de capas
-        m.add_layer_control()
-        
-        # Procesar cada polígono
+        # Crear un FeatureCollection con los polígonos
+        features = []
         for i, pol in enumerate(poligonos):
             if 'coords' in pol:
-                # Convertir coordenadas de [lon, lat] a [lat, lon] para EE
-                ee_coords = [[coord[1], coord[0]] for coord in pol['coords']]
+                # Convertir coordenadas al formato correcto para EE
+                ee_coords = [[coord[0], coord[1]] for coord in pol['coords']]  # [lon, lat]
                 
                 # Crear polígono para Earth Engine
-                polygon = ee.Geometry.Polygon([ee_coords])
+                geometry = ee.Geometry.Polygon([ee_coords])
                 
-                # Añadir polígono al mapa como capa vectorial
-                m.add_layer(ee.Feature(polygon), {'color': 'red'}, f"Polígono {i+1}")
+                # Crear feature con propiedades
+                feature = ee.Feature(geometry, {
+                    'id': i,
+                    'renspa': pol.get('renspa', ''),
+                    'superficie': pol.get('superficie', 0)
+                })
+                
+                features.append(feature)
         
-        # Añadir capa de cobertura de cultivos mundial
+        # Crear un FeatureCollection con todos los polígonos
+        poligonos_ee = ee.FeatureCollection(features)
+        
+        # Añadir los polígonos al mapa
+        m.add_layer(poligonos_ee, {'color': 'red'}, 'Polígonos')
+        
+        # Obtener cobertura de tierra de MODIS
         dataset = ee.ImageCollection("MODIS/006/MCD12Q1")
-        landcover = dataset.filter(ee.Filter.date('2019-01-01', '2023-12-31'))
         
-        # Crear una visualización para los tipos de cultivos
+        # Filtrar por años recientes
+        landcover = dataset.filter(ee.Filter.date('2019-01-01', '2023-12-31')).select('LC_Type1')
+        
+        # Configuración para visualización del landcover
         landcover_vis = {
-            'bands': ['LC_Type1'],
             'min': 1,
             'max': 17,
             'palette': [
-                '05450a', '086a10', '54a708', '78d203', '009900',
-                'c6b044', 'dcd159', 'dade48', 'fbff13', 'b6ff05',
-                '27ff87', 'c24f44', 'a5a5a5', 'ff6d4c', '69fff8',
-                'f9ffa4', '1c0dff'
+                '05450a', '086a10', '54a708', '78d203', '009900',  # 1-5: Bosques
+                'c6b044', 'dcd159', 'dade48', 'fbff13', 'b6ff05',  # 6-10: Arbustos y pastizales
+                '27ff87', 'c24f44', 'a5a5a5', 'ff6d4c', '69fff8',  # 11-15: Zonas húmedas, cultivos, urbano
+                'f9ffa4', '1c0dff'                                  # 16-17: Yerma, agua
             ]
         }
         
-        # Añadir capa de cobertura terrestre
-        m.add_ee_layer(landcover.first(), landcover_vis, 'Cobertura Terrestre (2019)')
+        # Añadir cada año como una capa separada
+        years = ['2019', '2020', '2021', '2022', '2023']
+        for year in years:
+            start_date = f'{year}-01-01'
+            end_date = f'{year}-12-31'
+            
+            # Filtrar por año
+            year_img = landcover.filter(ee.Filter.date(start_date, end_date)).first()
+            
+            # Añadir al mapa
+            if year_img:
+                m.add_layer(year_img, landcover_vis, f'Cobertura {year}', year == '2023')
+        
+        # Añadir controles
+        m.add_layer_control()
         
         # Mostrar el mapa
         st.subheader("Análisis de Cobertura Terrestre")
         m.to_streamlit(height=600)
         
-        # Explicación de los colores
-        st.info("""
-        **Leyenda:**
-        - Verde oscuro: Bosques
-        - Verde claro: Arbustos y pastizales
-        - Amarillo/Naranja: Cultivos y tierras agrícolas
-        - Rojo: Urbano
-        - Gris: Terreno estéril o escasamente vegetado
-        - Azul: Agua
-        """)
-        
-        # Añadir nota sobre la precisión
-        st.warning("Nota: Este análisis se basa en datos satelitales de resolución moderada. Para análisis más detallados, considere consultar con un especialista en teledetección.")
+        # Añadir leyenda interactiva
+        with st.expander("Leyenda de Cobertura Terrestre", expanded=False):
+            st.markdown("""
+            | Valor | Descripción |
+            |-------|-------------|
+            | 1 | Bosque perenne de hoja ancha |
+            | 2 | Bosque perenne de hoja acicular |
+            | 3 | Bosque caducifolio de hoja ancha |
+            | 4 | Bosque caducifolio de hoja acicular |
+            | 5 | Bosque mixto |
+            | 6 | Matorral cerrado |
+            | 7 | Matorral abierto |
+            | 8 | Sabana arbolada |
+            | 9 | Sabana |
+            | 10 | Pastizal |
+            | 11 | Humedal permanente |
+            | 12 | Cultivos |
+            | 13 | Área urbana y edificada |
+            | 14 | Mosaico de cultivos/vegetación natural |
+            | 15 | Nieve y hielo |
+            | 16 | Tierra yerma o con escasa vegetación |
+            | 17 | Cuerpos de agua |
+            """)
         
     except Exception as e:
         st.error(f"Error al crear el análisis de cultivos: {str(e)}")
-        st.info("Si el error persiste, contacte con soporte técnico.")
+        st.info("Si el error persiste, verifica la inicialización de Earth Engine o contacta con soporte técnico.")
 
 # Función para normalizar CUIT
 def normalizar_cuit(cuit):
@@ -382,101 +599,6 @@ def extraer_coordenadas(poligono_str):
     
     return None
 
-# Función para crear mapa con múltiples mejoras
-def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
-    """
-    Crea un mapa folium mejorado con los polígonos proporcionados
-    
-    Args:
-        poligonos: Lista de diccionarios con los datos de polígonos
-        center: Coordenadas del centro del mapa (opcional)
-        cuit_colors: Diccionario de colores por CUIT (opcional)
-        
-    Returns:
-        Objeto mapa de folium
-    """
-    if not folium_disponible:
-        st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium==0.14.0 streamlit-folium==0.13.0")
-        return None
-    
-    # Determinar centro del mapa
-    if center:
-        # Usar centro proporcionado
-        center_lat, center_lon = center
-    elif poligonos:
-        # Usar el primer polígono como referencia
-        center_lat = poligonos[0]['coords'][0][1]  # Latitud está en la segunda posición
-        center_lon = poligonos[0]['coords'][0][0]  # Longitud está en la primera posición
-    else:
-        # Centro predeterminado (Buenos Aires)
-        center_lat = -34.603722
-        center_lon = -58.381592
-    
-    # Crear mapa base
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
-    
-    # Añadir diferentes capas base con atribución para evitar errores
-    folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
-                    name='Google Hybrid', 
-                    attr='Google').add_to(m)
-    folium.TileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', 
-                    name='Google Satellite', 
-                    attr='Google').add_to(m)
-    folium.TileLayer('OpenStreetMap', name='OpenStreetMap').add_to(m)
-    
-    # Añadir herramienta de medición si está disponible
-    try:
-        MeasureControl(position='topright', 
-                      primary_length_unit='kilometers', 
-                      secondary_length_unit='miles', 
-                      primary_area_unit='hectares').add_to(m)
-    except:
-        pass
-    
-    # Añadir mini mapa si está disponible
-    try:
-        MiniMap().add_to(m)
-    except:
-        pass
-    
-    # Crear grupos de capas para mejor organización
-    fg_poligonos = folium.FeatureGroup(name="Polígonos RENSPA").add_to(m)
-    
-    # Añadir cada polígono al mapa
-    for pol in poligonos:
-        # Determinar color según CUIT si está disponible
-        if cuit_colors and 'cuit' in pol and pol['cuit'] in cuit_colors:
-            color = cuit_colors[pol['cuit']]
-        else:
-            color = 'green'
-        
-        # Formatear popup con información
-        popup_text = f"""
-        <b>RENSPA:</b> {pol['renspa']}<br>
-        <b>Titular:</b> {pol.get('titular', 'No disponible')}<br>
-        <b>Localidad:</b> {pol.get('localidad', 'No disponible')}<br>
-        <b>Superficie:</b> {pol.get('superficie', 0)} ha
-        """
-        if 'cuit' in pol:
-            popup_text += f"<br><b>CUIT:</b> {pol['cuit']}"
-        
-        # Añadir polígono al mapa
-        folium.Polygon(
-            locations=[[coord[1], coord[0]] for coord in pol['coords']],  # Invertir coordenadas para folium
-            color=color,
-            weight=2,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.3,
-            tooltip=f"RENSPA: {pol['renspa']}",
-            popup=popup_text
-        ).add_to(fg_poligonos)
-    
-    # Añadir control de capas
-    folium.LayerControl(position='topright').add_to(m)
-    
-    return m
-
 # Función para mostrar estadísticas de RENSPA
 def mostrar_estadisticas(df_renspa, poligonos=None):
     """
@@ -526,6 +648,19 @@ def mostrar_estadisticas(df_renspa, poligonos=None):
             if poligonos:
                 area_promedio = area_total / len(poligonos)
                 st.metric("Área promedio", f"{area_promedio:.2f} ha")
+
+# Introducción
+st.markdown(f"""
+Esta herramienta permite:
+
+1. Consultar todos los RENSPA asociados a un CUIT en la base de datos de SENASA
+2. Visualizar los polígonos de los campos en un mapa interactivo
+3. Descargar los datos en formato KMZ/GeoJSON para su uso en sistemas GIS
+""")
+
+# Si Earth Engine está disponible, añadir esa funcionalidad a la introducción
+if ee_disponible and ee_inicializado:
+    st.markdown("4. Analizar los cultivos históricos de los campos (usando Google Earth Engine)")
 
 # Crear tabs para las diferentes funcionalidades
 tab1, tab2, tab3 = st.tabs(["Consulta por CUIT", "Consulta por Lista de RENSPA", "Consulta por Múltiples CUITs"])
@@ -680,15 +815,12 @@ with tab1:
                     mostrar_estadisticas(df_renspa, poligonos_gee if incluir_poligono else None)
                 
                 # Si se procesaron polígonos, mostrarlos en el mapa
-                if incluir_poligono and poligonos_gee and folium_disponible:
+                if incluir_poligono and poligonos_gee:
                     # Crear mapa para visualización
                     st.subheader("Visualización de polígonos")
                     
-                    # Crear mapa mejorado
-                    m = crear_mapa_mejorado(poligonos_gee)
-                    
-                    # Mostrar el mapa
-                    folium_static(m, width=1000, height=600)
+                    # Mostrar el mapa usando la función apropiada
+                    mostrar_mapa(poligonos_gee)
                     
                     # Si Earth Engine está disponible, mostrar botón para análisis de cultivos
                     if ee_disponible and ee_inicializado:
@@ -697,16 +829,13 @@ with tab1:
                         
                         # Mostrar información sobre el servicio
                         st.info("""
-                        Puede analizar los cultivos históricos (2019-2024) utilizando los datos de Google Earth Engine.
+                        Puede analizar los cultivos históricos (2019-2023) utilizando los datos de Google Earth Engine.
                         Este análisis mostrará cómo ha cambiado el uso de la tierra en estos campos año a año.
                         """)
                         
                         # Crear botón de análisis
                         if st.button("Analizar Cultivos Históricos"):
                             crear_analisis_cultivos(poligonos_gee)
-                    
-                elif incluir_poligono and not folium_disponible:
-                    st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium==0.14.0 streamlit-folium==0.13.0")
                 
                 # Generar archivo KMZ para descarga
                 if incluir_poligono and poligonos_gee:
@@ -840,8 +969,22 @@ with tab1:
         
         except Exception as e:
             st.error(f"Error durante el procesamiento: {str(e)}")
+            if debug_mode:
+                import traceback
+                st.error(traceback.format_exc())
 
 # Con los tabs 2 y 3 se pueden agregar las demás funcionalidades según necesites
+with tab2:
+    st.header("Consulta por Lista de RENSPA")
+    st.info("Esta funcionalidad estará disponible próximamente")
+    
+    # Implementa aquí la funcionalidad para consultar múltiples RENSPA
+
+with tab3:
+    st.header("Consulta por Múltiples CUITs")
+    st.info("Esta funcionalidad estará disponible próximamente")
+    
+    # Implementa aquí la funcionalidad para consultar múltiples CUITs
 
 # Información en la barra lateral
 st.sidebar.markdown("---")
@@ -864,14 +1007,14 @@ elif ee_disponible and not ee_inicializado:
     Earth Engine requiere autenticación para acceder a los datos satelitales.
     
     Para habilitarlo:
-    1. Instale las dependencias: pip install earthengine-api==0.1.348 geemap==0.20.6
+    1. Instale las dependencias: earthengine-api==0.1.348 geemap==0.19.5
     2. Configure credenciales en Streamlit Cloud
     """)
 else:
     st.sidebar.warning("Google Earth Engine no está disponible")
     st.sidebar.info(
         "Para habilitar el análisis de cultivos históricos, instala las siguientes dependencias:\n"
-        "```\npip install earthengine-api==0.1.348 geemap==0.20.6\n```"
+        "```\nearthengine-api==0.1.348 geemap==0.19.5\n```"
     )
 
 # Información en el pie de página
