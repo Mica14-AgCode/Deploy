@@ -1,8 +1,8 @@
-streamlit>=1.18.0
-pandas>=1.5.0
-numpy>=1.22.0
-requests>=2.28.0
-folium>=0.14.0
-streamlit-folium>=0.12.0
-earthengine-api>=0.1.340
-geemap>=0.20.0  # Asegúrate de especificar una versión compatible
+streamlit==1.24.0
+pandas==1.5.3
+numpy==1.24.3
+requests==2.30.0
+folium==0.14.0
+streamlit-folium==0.13.0
+earthengine-api==0.1.348
+geemap==0.20.6
