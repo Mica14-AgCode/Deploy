@@ -10,6 +10,7 @@ from io import BytesIO
 import random
 import os
 import sys
+import subprocess
 
 # Configuración de la página
 st.set_page_config(
@@ -21,12 +22,26 @@ st.set_page_config(
 # Título principal
 st.title("Consulta RENSPA desde SENASA")
 
+# Detectar entorno Streamlit Cloud
+is_cloud = os.environ.get('SUDO_USER') == 'adminuser' or 'STREAMLIT_RUNTIME' in os.environ
+
+# Intentar instalar dependencias si es necesario
+def instalar_dependencia(paquete, version=None):
+    paquete_version = f"{paquete}=={version}" if version else paquete
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", paquete_version])
+        return True
+    except:
+        return False
+
 # Verificación de dependencias al inicio
 with st.sidebar:
     st.sidebar.title("Diagnóstico del Sistema")
     st.sidebar.write(f"Python version: {sys.version}")
+    st.sidebar.write(f"Ejecutando en Streamlit Cloud: {is_cloud}")
     
     # Intentar cargar folium
+    folium_disponible = False
     try:
         import folium
         from folium.plugins import MeasureControl, MiniMap, MarkerCluster
@@ -35,9 +50,19 @@ with st.sidebar:
         folium_disponible = True
     except ImportError as e:
         st.sidebar.error(f"❌ Folium no disponible: {str(e)}")
-        folium_disponible = False
+        st.sidebar.info("Para instalar Folium: pip install folium==0.14.0 streamlit-folium==0.13.0")
+        # Intentar instalar en tiempo de ejecución
+        if st.sidebar.button("Intentar instalar Folium"):
+            with st.spinner("Instalando Folium..."):
+                if instalar_dependencia("folium", "0.14.0") and instalar_dependencia("streamlit-folium", "0.13.0"):
+                    st.sidebar.success("✅ Folium instalado. Por favor, reinicia la aplicación.")
+                    st.stop()
+                else:
+                    st.sidebar.error("❌ No se pudo instalar Folium")
 
-    # Intentar cargar Earth Engine de manera progresiva
+    # Intentar cargar Earth Engine
+    ee_disponible = False
+    ee_inicializado = False
     try:
         import ee
         st.sidebar.success(f"✅ Earth Engine API disponible")
@@ -51,104 +76,69 @@ with st.sidebar:
             except:
                 st.sidebar.success(f"✅ Geemap disponible (versión desconocida)")
                 
-            # Intentar inicializar Earth Engine
-            try:
-                # Verificar si estamos en Streamlit Cloud
-                is_cloud = os.environ.get('STREAMLIT_RUNTIME', '') == 'cloud'
-                
-                if is_cloud:
-                    # Comprobar si tenemos token o credenciales
-                    has_ee_token = 'EARTHENGINE_TOKEN' in st.secrets
-                    has_service_account = 'gcp_service_account' in st.secrets
-                    
-                    if has_ee_token:
-                        st.sidebar.info("Usando EARTHENGINE_TOKEN para autenticación")
-                        # Inicializar con geemap que usará automáticamente el token
-                        geemap.ee_initialize()
-                        ee_inicializado = True
-                        st.sidebar.success("✅ Earth Engine inicializado con token")
-                    elif has_service_account:
-                        st.sidebar.info("Usando cuenta de servicio para autenticación")
-                        # Inicializar con la cuenta de servicio
-                        credentials_dict = st.secrets["gcp_service_account"]
-                        # Asegurarse que private_key tenga el formato correcto
-                        if 'private_key' in credentials_dict:
-                            credentials_dict['private_key'] = credentials_dict['private_key'].replace('\\n', '\n')
-                        
-                        # Crear credenciales y inicializar
-                        credentials = ee.ServiceAccountCredentials(
-                            email=credentials_dict["client_email"],
-                            key_data=json.dumps(credentials_dict)
-                        )
-                        ee.Initialize(credentials)
-                        ee_inicializado = True
-                        st.sidebar.success("✅ Earth Engine inicializado con cuenta de servicio")
+            ee_disponible = True
+            
+            # Inicialización de Earth Engine solo si tenemos los módulos
+            if ee_disponible:
+                try:
+                    # Si estamos en Streamlit Cloud y hay credenciales, usarlas
+                    if is_cloud and hasattr(st, 'secrets'):
+                        if 'EARTHENGINE_TOKEN' in st.secrets:
+                            st.sidebar.info("Usando EARTHENGINE_TOKEN para autenticación")
+                            geemap.ee_initialize()
+                            ee_inicializado = True
+                            st.sidebar.success("✅ Earth Engine inicializado con token")
+                        elif 'gcp_service_account' in st.secrets:
+                            st.sidebar.info("Usando cuenta de servicio para autenticación")
+                            credentials_dict = st.secrets["gcp_service_account"]
+                            if 'private_key' in credentials_dict:
+                                credentials_dict['private_key'] = credentials_dict['private_key'].replace('\\n', '\n')
+                            
+                            credentials = ee.ServiceAccountCredentials(
+                                email=credentials_dict["client_email"],
+                                key_data=json.dumps(credentials_dict)
+                            )
+                            ee.Initialize(credentials)
+                            ee_inicializado = True
+                            st.sidebar.success("✅ Earth Engine inicializado con cuenta de servicio")
+                        else:
+                            st.sidebar.warning("⚠️ No se encontraron credenciales para Earth Engine")
                     else:
-                        st.sidebar.warning("⚠️ No se encontraron credenciales para Earth Engine")
-                        ee_inicializado = False
-                else:
-                    # Inicialización en entorno local
-                    try:
-                        geemap.ee_initialize()
-                        ee_inicializado = True
-                        st.sidebar.success("✅ Earth Engine inicializado (local)")
-                    except Exception as e:
-                        ee.Authenticate()
-                        ee.Initialize()
-                        ee_inicializado = True
-                        st.sidebar.success("✅ Earth Engine inicializado tras autenticación")
-                
-                # Verificar que la inicialización funcionó correctamente
-                if ee_inicializado:
-                    try:
-                        # Intentar una operación simple
-                        image = ee.Image('USGS/SRTMGL1_003')
-                        info = image.getInfo()
-                        st.sidebar.success("✅ Operación Earth Engine exitosa")
-                    except Exception as ee_op_error:
-                        st.sidebar.error(f"❌ Earth Engine inicializado pero falló operación: {str(ee_op_error)}")
-                        ee_inicializado = False
-                
-            except Exception as init_error:
-                st.sidebar.error(f"❌ Error al inicializar Earth Engine: {str(init_error)}")
-                ee_inicializado = False
+                        # Inicialización en entorno local
+                        try:
+                            ee.Initialize()
+                            ee_inicializado = True
+                            st.sidebar.success("✅ Earth Engine inicializado (local)")
+                        except Exception as e:
+                            st.sidebar.error(f"❌ No se pudo inicializar Earth Engine: {str(e)}")
+                except Exception as init_error:
+                    st.sidebar.error(f"❌ Error al inicializar Earth Engine: {str(init_error)}")
         
         except ImportError as geemap_error:
             st.sidebar.error(f"❌ Geemap no disponible: {str(geemap_error)}")
-            ee_inicializado = False
             
-        ee_disponible = True
     except ImportError as ee_error:
         st.sidebar.error(f"❌ Earth Engine API no disponible: {str(ee_error)}")
-        ee_disponible = False
-        ee_inicializado = False
+        st.sidebar.info("Para instalar Earth Engine: pip install earthengine-api==0.1.348 geemap==0.20.6")
+        # Intentar instalar en tiempo de ejecución
+        if st.sidebar.button("Intentar instalar Earth Engine"):
+            with st.spinner("Instalando Earth Engine y Geemap..."):
+                if instalar_dependencia("earthengine-api", "0.1.348") and instalar_dependencia("geemap", "0.20.6"):
+                    st.sidebar.success("✅ Earth Engine y Geemap instalados. Por favor, reinicia la aplicación.")
+                    st.stop()
+                else:
+                    st.sidebar.error("❌ No se pudo instalar Earth Engine")
 
-# Mostrar consejos de instalación si las librerías no están disponibles
-if not folium_disponible:
-    st.sidebar.info("Para instalar Folium: pip install folium==0.14.0 streamlit-folium==0.13.0")
-
-if not ee_disponible:
-    st.sidebar.info("Para instalar Earth Engine: pip install earthengine-api==0.1.348 geemap==0.20.6")
-    
-if ee_disponible and not ee_inicializado:
-    st.sidebar.info("""
-    Asegúrate de configurar credenciales en Streamlit Cloud:
-    - Opción 1: Configura EARTHENGINE_TOKEN en Secrets
-    - Opción 2: Configura gcp_service_account en Secrets
-    """)
-
-# Modo de depuración (solo visible en la barra lateral)
+# Modo de depuración avanzado
 with st.sidebar:
     st.sidebar.markdown("---")
-    debug_mode = st.checkbox("Modo depuración avanzado", value=False, key="debug_mode")
+    debug_mode = st.sidebar.checkbox("Modo depuración avanzado", value=False)
     
     if debug_mode:
         st.sidebar.markdown("---")
         st.sidebar.write("**Información de diagnóstico avanzada:**")
-        is_cloud = os.environ.get('STREAMLIT_RUNTIME', '') == 'cloud'
-        st.sidebar.write(f"- Ejecutando en Streamlit Cloud: {is_cloud}")
         st.sidebar.write(f"- Earth Engine importado: {ee_disponible}")
-        st.sidebar.write(f"- Earth Engine inicializado: {ee_inicializado if 'ee_inicializado' in locals() else False}")
+        st.sidebar.write(f"- Earth Engine inicializado: {ee_inicializado}")
         
         # Detalles del entorno
         st.sidebar.write("**Variables de entorno:**")
@@ -159,43 +149,27 @@ with st.sidebar:
             st.sidebar.json(safe_vars)
         
         # Detalles de secrets (sin mostrar valores sensibles)
-        if is_cloud:
+        if is_cloud and hasattr(st, 'secrets') and st.secrets:
             st.sidebar.write("**Configuración de Secrets:**")
-            if hasattr(st, 'secrets') and st.secrets:
-                secret_keys = list(st.secrets.keys())
-                st.sidebar.write(f"Claves configuradas: {', '.join(secret_keys)}")
-                
-                # Verificar estructura específica de las credenciales
-                if 'gcp_service_account' in st.secrets:
-                    service_account_keys = list(st.secrets['gcp_service_account'].keys())
-                    st.sidebar.write(f"La cuenta de servicio contiene: {', '.join(service_account_keys)}")
-                    
-                    # Verificar campos obligatorios
-                    required_fields = ['client_email', 'private_key', 'project_id']
-                    missing_fields = [field for field in required_fields if field not in service_account_keys]
-                    
-                    if missing_fields:
-                        st.sidebar.warning(f"⚠️ Faltan campos en la cuenta de servicio: {', '.join(missing_fields)}")
-                    else:
-                        st.sidebar.success("✅ La cuenta de servicio contiene todos los campos requeridos")
-                
-                # Verificar EARTHENGINE_TOKEN si existe
-                if 'EARTHENGINE_TOKEN' in st.secrets:
-                    token = st.secrets['EARTHENGINE_TOKEN']
-                    # Solo verificar formato sin mostrar el valor
-                    try:
-                        if isinstance(token, str) and (token.startswith('{"refresh_token"') or token.startswith('1//')):
-                            st.sidebar.success("✅ Formato de EARTHENGINE_TOKEN válido")
-                        else:
-                            st.sidebar.warning("⚠️ Formato de EARTHENGINE_TOKEN posiblemente incorrecto")
-                    except:
-                        st.sidebar.warning("⚠️ No se puede verificar formato de EARTHENGINE_TOKEN")
-            else:
-                st.sidebar.warning("No se encontraron secrets configurados")
+            secret_keys = list(st.secrets.keys()) if hasattr(st, 'secrets') else []
+            st.sidebar.write(f"Claves configuradas: {', '.join(secret_keys)}")
 
 # Configuraciones globales
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
 TIEMPO_ESPERA = 0.5  # Pausa entre peticiones para no sobrecargar la API
+
+# Introducción
+st.markdown(f"""
+Esta herramienta permite:
+
+1. Consultar todos los RENSPA asociados a un CUIT en la base de datos de SENASA
+2. Visualizar los polígonos de los campos en un mapa interactivo
+3. Descargar los datos en formato KMZ/GeoJSON para su uso en sistemas GIS
+""")
+
+# Si Earth Engine está disponible, añadir esa funcionalidad a la introducción
+if ee_disponible and ee_inicializado:
+    st.markdown("4. Analizar los cultivos históricos de los campos (usando Google Earth Engine)")
 
 # Función para crear análisis de cultivos con Earth Engine
 def crear_analisis_cultivos(poligonos):
@@ -450,14 +424,20 @@ def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
                     attr='Google').add_to(m)
     folium.TileLayer('OpenStreetMap', name='OpenStreetMap').add_to(m)
     
-    # Añadir herramienta de medición
-    MeasureControl(position='topright', 
-                  primary_length_unit='kilometers', 
-                  secondary_length_unit='miles', 
-                  primary_area_unit='hectares').add_to(m)
+    # Añadir herramienta de medición si está disponible
+    try:
+        MeasureControl(position='topright', 
+                      primary_length_unit='kilometers', 
+                      secondary_length_unit='miles', 
+                      primary_area_unit='hectares').add_to(m)
+    except:
+        pass
     
-    # Añadir mini mapa para ubicación
-    MiniMap().add_to(m)
+    # Añadir mini mapa si está disponible
+    try:
+        MiniMap().add_to(m)
+    except:
+        pass
     
     # Crear grupos de capas para mejor organización
     fg_poligonos = folium.FeatureGroup(name="Polígonos RENSPA").add_to(m)
@@ -547,19 +527,6 @@ def mostrar_estadisticas(df_renspa, poligonos=None):
                 area_promedio = area_total / len(poligonos)
                 st.metric("Área promedio", f"{area_promedio:.2f} ha")
 
-# Introducción
-st.markdown(f"""
-Esta herramienta permite:
-
-1. Consultar todos los RENSPA asociados a un CUIT en la base de datos de SENASA
-2. Visualizar los polígonos de los campos en un mapa interactivo
-3. Descargar los datos en formato KMZ/GeoJSON para su uso en sistemas GIS
-""")
-
-# Si Earth Engine está disponible, añadir esa funcionalidad a la introducción
-if ee_disponible and ee_inicializado:
-    st.markdown("4. Analizar los cultivos históricos de los campos (usando Google Earth Engine)")
-
 # Crear tabs para las diferentes funcionalidades
 tab1, tab2, tab3 = st.tabs(["Consulta por CUIT", "Consulta por Lista de RENSPA", "Consulta por Múltiples CUITs"])
 
@@ -615,12 +582,12 @@ with tab1:
                     st.info(f"Se procesarán todos los {len(renspa_a_procesar)} RENSPA")
                 
                 # Paso 2: Procesar los RENSPA para obtener los polígonos
+                poligonos_gee = []
                 if incluir_poligono:
                     status_text.text("Obteniendo información de polígonos...")
                     progress_bar.progress(40)
                     
                     # Listas para almacenar resultados
-                    poligonos_gee = []
                     fallidos = []
                     renspa_sin_poligono = []
                     
@@ -739,7 +706,7 @@ with tab1:
                             crear_analisis_cultivos(poligonos_gee)
                     
                 elif incluir_poligono and not folium_disponible:
-                    st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium streamlit-folium")
+                    st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium==0.14.0 streamlit-folium==0.13.0")
                 
                 # Generar archivo KMZ para descarga
                 if incluir_poligono and poligonos_gee:
