@@ -10,8 +10,6 @@ from io import BytesIO
 import random
 import os
 import sys
-from google.oauth2 import service_account
-from ee import oauth
 
 # Configuración de la página
 st.set_page_config(
@@ -57,86 +55,36 @@ with st.sidebar:
         # Ahora intentar importar geemap
         try:
             import geemap
-            try:
-                version = geemap.__version__
-                st.sidebar.success(f"✅ Geemap {version} disponible")
-                geemap_disponible = True
-            except:
-                st.sidebar.success(f"✅ Geemap disponible (versión desconocida)")
-                geemap_disponible = True
-                
+            st.sidebar.success(f"✅ Geemap disponible")
+            geemap_disponible = True
+            
             # Inicialización de Earth Engine
             if ee_disponible and geemap_disponible:
                 try:
-                    # Si estamos en Streamlit Cloud y hay credenciales, usarlas
-                    if is_cloud and hasattr(st, 'secrets'):
-                        if 'EARTHENGINE_TOKEN' in st.secrets:
-                            st.sidebar.info("Usando EARTHENGINE_TOKEN para autenticación")
-                            geemap.ee_initialize()
-                            ee_inicializado = True
-                            st.sidebar.success("✅ Earth Engine inicializado con token")
-                        elif 'gcp_service_account' in st.secrets:
-                            st.sidebar.info("Usando cuenta de servicio para autenticación")
-                            credentials_dict = st.secrets["gcp_service_account"]
-                            
-                            # Asegurarse de que los saltos de línea estén correctos
-                            if 'private_key' in credentials_dict and isinstance(credentials_dict["private_key"], str):
-                                credentials_dict["private_key"] = credentials_dict["private_key"].replace('\\n', '\n')
-                            
-                            # Usar la autenticación de service_account en lugar de ee.ServiceAccountCredentials
-                            credentials = service_account.Credentials.from_service_account_info(
-                                credentials_dict, scopes=oauth.SCOPES
-                            )
-                            
-                            ee.Initialize(credentials)
-                            ee_inicializado = True
-                            st.sidebar.success("✅ Earth Engine inicializado con cuenta de servicio")
-                        else:
-                            st.sidebar.warning("⚠️ No se encontraron credenciales para Earth Engine")
-                            # Intentar inicializar de todos modos con geemap
-                            try:
-                                geemap.ee_initialize()
-                                ee_inicializado = True
-                                st.sidebar.success("✅ Earth Engine inicializado automáticamente")
-                            except Exception as ee_auto_error:
-                                st.sidebar.error(f"❌ No se pudo inicializar automáticamente: {str(ee_auto_error)}")
-                    else:
-                        # Inicialización en entorno local
-                        try:
-                            ee.Initialize()
-                            ee_inicializado = True
-                            st.sidebar.success("✅ Earth Engine inicializado (local)")
-                        except Exception as e:
-                            st.sidebar.error(f"❌ No se pudo inicializar Earth Engine: {str(e)}")
-                            try:
-                                geemap.ee_initialize()
-                                ee_inicializado = True
-                                st.sidebar.success("✅ Earth Engine inicializado con geemap")
-                            except Exception as ee_error:
-                                st.sidebar.error(f"❌ No se pudo inicializar con geemap: {str(ee_error)}")
-                            
-                    # Verificar que Earth Engine funciona
-                    if ee_inicializado:
-                        try:
-                            image = ee.Image('USGS/SRTMGL1_003')
-                            info = image.getInfo()
-                            st.sidebar.success("✅ Operación Earth Engine exitosa")
-                        except Exception as ee_error:
-                            st.sidebar.error(f"❌ Earth Engine inicializado pero falló operación: {str(ee_error)}")
-                            ee_inicializado = False
-                            
-                except Exception as init_error:
-                    st.sidebar.error(f"❌ Error al inicializar Earth Engine: {str(init_error)}")
-        
+                    # Inicialización más simple con geemap
+                    geemap.ee_initialize()
+                    ee_inicializado = True
+                    st.sidebar.success("✅ Earth Engine inicializado con geemap")
+                except Exception as e:
+                    st.sidebar.error(f"❌ Error al inicializar Earth Engine: {str(e)}")
+                    
+                # Verificar que Earth Engine funciona
+                if ee_inicializado:
+                    try:
+                        image = ee.Image('USGS/SRTMGL1_003')
+                        info = image.getInfo()
+                        st.sidebar.success("✅ Operación Earth Engine exitosa")
+                    except Exception as ee_error:
+                        st.sidebar.error(f"❌ Earth Engine inicializado pero falló operación: {str(ee_error)}")
+                        ee_inicializado = False
+            
         except ImportError as geemap_error:
             st.sidebar.error(f"❌ Geemap no disponible: {str(geemap_error)}")
-            st.sidebar.info("Instala geemap con: geemap==0.19.5")
             
     except ImportError as ee_error:
         st.sidebar.error(f"❌ Earth Engine API no disponible: {str(ee_error)}")
-        st.sidebar.info("Instala Earth Engine API con: earthengine-api==0.1.348")
 
-# Modo de depuración avanzado
+# Modo de depuración
 with st.sidebar:
     st.sidebar.markdown("---")
     debug_mode = st.sidebar.checkbox("Modo depuración avanzado", value=False)
@@ -147,42 +95,17 @@ with st.sidebar:
         st.sidebar.write(f"- Earth Engine importado: {ee_disponible}")
         st.sidebar.write(f"- Geemap disponible: {geemap_disponible}")
         st.sidebar.write(f"- Earth Engine inicializado: {ee_inicializado}")
-        
-        # Detalles de secrets (sin mostrar valores sensibles)
-        if is_cloud and hasattr(st, 'secrets') and st.secrets:
-            st.sidebar.write("**Configuración de Secrets:**")
-            secret_keys = list(st.secrets.keys()) if hasattr(st, 'secrets') else []
-            st.sidebar.write(f"Claves configuradas: {', '.join(secret_keys)}")
-            
-            # Verificar estructura específica de las credenciales
-            if 'gcp_service_account' in st.secrets:
-                service_account_keys = list(st.secrets['gcp_service_account'].keys())
-                st.sidebar.write(f"La cuenta de servicio contiene: {', '.join(service_account_keys)}")
-                
-                # Verificar campos obligatorios
-                required_fields = ['client_email', 'private_key', 'project_id']
-                missing_fields = [field for field in required_fields if field not in service_account_keys]
-                
-                if missing_fields:
-                    st.sidebar.warning(f"⚠️ Faltan campos en la cuenta de servicio: {', '.join(missing_fields)}")
-                else:
-                    st.sidebar.success("✅ La cuenta de servicio contiene todos los campos requeridos")
 
 # Configuraciones globales
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
 TIEMPO_ESPERA = 0.5  # Pausa entre peticiones para no sobrecargar la API
 
+# === FUNCIONES AUXILIARES ===
+
 # Función para crear mapa geemap
 def crear_mapa_geemap(poligonos=None, center=None):
     """
     Crea un mapa interactivo usando geemap para visualizar polígonos
-    
-    Args:
-        poligonos: Lista de diccionarios con información de polígonos
-        center: Coordenadas del centro del mapa (opcional)
-    
-    Returns:
-        Objeto de mapa geemap
     """
     # Crear mapa base
     if center:
@@ -233,18 +156,10 @@ def crear_mapa_geemap(poligonos=None, center=None):
     
     return m
 
-# Función para crear mapa con múltiples mejoras usando folium (respaldo)
+# Función para crear mapa con folium (respaldo)
 def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
     """
     Crea un mapa folium mejorado con los polígonos proporcionados
-    
-    Args:
-        poligonos: Lista de diccionarios con los datos de polígonos
-        center: Coordenadas del centro del mapa (opcional)
-        cuit_colors: Diccionario de colores por CUIT (opcional)
-        
-    Returns:
-        Objeto mapa de folium
     """
     if not folium_disponible:
         st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium==0.14.0 streamlit-folium==0.13.0")
@@ -252,14 +167,11 @@ def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
     
     # Determinar centro del mapa
     if center:
-        # Usar centro proporcionado
         center_lat, center_lon = center
     elif poligonos:
-        # Usar el primer polígono como referencia
-        center_lat = poligonos[0]['coords'][0][1]  # Latitud está en la segunda posición
-        center_lon = poligonos[0]['coords'][0][0]  # Longitud está en la primera posición
+        center_lat = poligonos[0]['coords'][0][1]  # Latitud
+        center_lon = poligonos[0]['coords'][0][0]  # Longitud
     else:
-        # Centro predeterminado (Buenos Aires)
         center_lat = -34.603722
         center_lon = -58.381592
     
@@ -275,16 +187,16 @@ def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
                     attr='Google').add_to(m)
     folium.TileLayer('OpenStreetMap', name='OpenStreetMap').add_to(m)
     
-    # Añadir herramienta de medición si está disponible
+    # Añadir herramienta de medición
     try:
         MeasureControl(position='topright', 
-                      primary_length_unit='kilometers', 
-                      secondary_length_unit='miles', 
-                      primary_area_unit='hectares').add_to(m)
+                    primary_length_unit='kilometers', 
+                    secondary_length_unit='miles', 
+                    primary_area_unit='hectares').add_to(m)
     except:
         pass
     
-    # Añadir mini mapa si está disponible
+    # Añadir mini mapa
     try:
         MiniMap().add_to(m)
     except:
@@ -332,10 +244,6 @@ def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
 def mostrar_mapa(poligonos=None, center=None):
     """
     Muestra el mapa usando geemap (preferido) o folium (respaldo)
-    
-    Args:
-        poligonos: Lista de diccionarios con información de polígonos
-        center: Coordenadas del centro del mapa (opcional)
     """
     try:
         if geemap_disponible and ee_inicializado:
@@ -357,18 +265,13 @@ def mostrar_mapa(poligonos=None, center=None):
 def crear_analisis_cultivos(poligonos):
     """
     Crea un análisis de cultivos históricos usando Google Earth Engine
-    
-    Args:
-        poligonos: Lista de diccionarios con información de polígonos
     """
     if not ee_disponible:
         st.error("Google Earth Engine no está disponible. Instala las dependencias necesarias.")
-        st.info("Ejecuta: pip install earthengine-api==0.1.348 geemap==0.19.5")
         return
     
     if not ee_inicializado:
         st.error("Google Earth Engine no está inicializado correctamente.")
-        st.info("Verifica las credenciales en Streamlit Cloud.")
         return
     
     try:
@@ -465,7 +368,6 @@ def crear_analisis_cultivos(poligonos):
         
     except Exception as e:
         st.error(f"Error al crear el análisis de cultivos: {str(e)}")
-        st.info("Si el error persiste, verifica la inicialización de Earth Engine o contacta con soporte técnico.")
 
 # Función para normalizar CUIT
 def normalizar_cuit(cuit):
@@ -603,10 +505,6 @@ def extraer_coordenadas(poligono_str):
 def mostrar_estadisticas(df_renspa, poligonos=None):
     """
     Muestra estadísticas sobre los RENSPA procesados
-    
-    Args:
-        df_renspa: DataFrame con los datos de RENSPA
-        poligonos: Lista de diccionarios con los polígonos (opcional)
     """
     st.subheader("Estadísticas de RENSPA")
     
@@ -648,6 +546,8 @@ def mostrar_estadisticas(df_renspa, poligonos=None):
             if poligonos:
                 area_promedio = area_total / len(poligonos)
                 st.metric("Área promedio", f"{area_promedio:.2f} ha")
+
+# === INTERFAZ DE LA APLICACIÓN ===
 
 # Introducción
 st.markdown(f"""
@@ -978,13 +878,9 @@ with tab2:
     st.header("Consulta por Lista de RENSPA")
     st.info("Esta funcionalidad estará disponible próximamente")
     
-    # Implementa aquí la funcionalidad para consultar múltiples RENSPA
-
 with tab3:
     st.header("Consulta por Múltiples CUITs")
     st.info("Esta funcionalidad estará disponible próximamente")
-    
-    # Implementa aquí la funcionalidad para consultar múltiples CUITs
 
 # Información en la barra lateral
 st.sidebar.markdown("---")
