@@ -10,6 +10,13 @@ from io import BytesIO
 import random
 import os
 
+# Configuración de la página
+st.set_page_config(
+    page_title="Consulta RENSPA - SENASA",
+    page_icon="🌱",
+    layout="wide"
+)
+
 # Intentar importar folium y streamlit_folium
 try:
     import folium
@@ -18,21 +25,17 @@ try:
     folium_disponible = True
 except ImportError:
     folium_disponible = False
+    st.sidebar.warning("Folium no está disponible. Instálalo con: pip install folium streamlit-folium")
 
-# Intentar importar Earth Engine
+# Intentar importar Earth Engine - MEJORADO
 try:
     import ee
     import geemap.foliumap as geemap
     ee_disponible = True
+    st.sidebar.success("Google Earth Engine importado correctamente")
 except ImportError:
     ee_disponible = False
-
-# Configuración de la página
-st.set_page_config(
-    page_title="Consulta RENSPA - SENASA",
-    page_icon="🌱",
-    layout="wide"
-)
+    st.sidebar.warning("Google Earth Engine no está disponible. Instálalo con: pip install earthengine-api geemap")
 
 # Configuraciones globales
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
@@ -41,58 +44,111 @@ TIEMPO_ESPERA = 0.5  # Pausa entre peticiones para no sobrecargar la API
 # Título principal
 st.title("Consulta RENSPA desde SENASA")
 
-# Función para inicializar Earth Engine
+# Modo de depuración (solo visible en la barra lateral)
+with st.sidebar:
+    debug_mode = st.checkbox("Modo depuración", value=True, key="debug_mode")
+    
+    if debug_mode:
+        st.sidebar.markdown("---")
+        st.sidebar.write("**Información de diagnóstico:**")
+        is_cloud = os.environ.get('STREAMLIT_RUNTIME', '') == 'cloud'
+        st.sidebar.write(f"- Ejecutando en Streamlit Cloud: {is_cloud}")
+        st.sidebar.write(f"- Earth Engine importado: {ee_disponible}")
+        
+        if 'gcp_service_account' in st.secrets:
+            st.sidebar.write("- Credenciales configuradas: ✅")
+            # Muestra solo información no sensible
+            try:
+                st.sidebar.write(f"  - Proyecto: {st.secrets['gcp_service_account']['project_id']}")
+                st.sidebar.write(f"  - Email: {st.secrets['gcp_service_account']['client_email']}")
+            except:
+                st.sidebar.write("  - No se pudo acceder a los detalles de las credenciales")
+        else:
+            st.sidebar.write("- Credenciales configuradas: ❌")
+        
+        st.sidebar.markdown("---")
+
+# Función mejorada para inicializar Earth Engine
 def inicializar_earth_engine():
-    """Inicializa Earth Engine con credenciales de cuenta de servicio si está en la nube"""
+    """Inicializa Earth Engine con mejor manejo de errores"""
+    if not ee_disponible:
+        return False
+        
     try:
-        # Detectar si estamos en Streamlit Cloud
+        # Verificar si estamos en Streamlit Cloud
         is_cloud = os.environ.get('STREAMLIT_RUNTIME', '') == 'cloud'
         
-        if is_cloud and 'gcp_service_account' in st.secrets:
-            # Crear un diccionario con las credenciales
-            credentials_dict = {
-                "type": st.secrets["gcp_service_account"]["type"],
-                "project_id": st.secrets["gcp_service_account"]["project_id"],
-                "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
-                "private_key": st.secrets["gcp_service_account"]["private_key"],
-                "client_email": st.secrets["gcp_service_account"]["client_email"],
-                "client_id": st.secrets["gcp_service_account"]["client_id"],
-                "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
-                "token_uri": st.secrets["gcp_service_account"]["token_uri"],
-                "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
-                "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
-            }
+        if is_cloud:
+            # Verificar si los secretos están disponibles
+            if 'gcp_service_account' not in st.secrets:
+                if debug_mode:
+                    st.sidebar.error("Error: No se encontraron credenciales en Streamlit Secrets")
+                return False
             
-            # Inicializar con credenciales
-            credentials = ee.ServiceAccountCredentials(
-                email=st.secrets["gcp_service_account"]["client_email"],
-                key_data=json.dumps(credentials_dict)
-            )
-            ee.Initialize(credentials)
-            
-            st.sidebar.success("Google Earth Engine inicializado correctamente")
-            return True
+            try:
+                # Crear un diccionario con las credenciales
+                credentials_dict = {
+                    "type": st.secrets["gcp_service_account"]["type"],
+                    "project_id": st.secrets["gcp_service_account"]["project_id"],
+                    "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+                    "private_key": st.secrets["gcp_service_account"]["private_key"],
+                    "client_email": st.secrets["gcp_service_account"]["client_email"],
+                    "client_id": st.secrets["gcp_service_account"]["client_id"],
+                    "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
+                    "token_uri": st.secrets["gcp_service_account"]["token_uri"],
+                    "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
+                    "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
+                }
+                
+                # Inicializar con credenciales
+                credentials = ee.ServiceAccountCredentials(
+                    email=st.secrets["gcp_service_account"]["client_email"],
+                    key_data=json.dumps(credentials_dict)
+                )
+                ee.Initialize(credentials)
+                
+                # Verificar que la autenticación fue exitosa
+                try:
+                    # Intentar una operación simple
+                    image = ee.Image('USGS/SRTMGL1_003')
+                    info = image.getInfo()
+                    
+                    if debug_mode:
+                        st.sidebar.success("✅ Google Earth Engine inicializado correctamente")
+                    return True
+                except Exception as ee_op_error:
+                    if debug_mode:
+                        st.sidebar.error(f"Error al verificar operación de Earth Engine: {str(ee_op_error)}")
+                    return False
+                
+            except Exception as e:
+                if debug_mode:
+                    st.sidebar.error(f"Error en inicialización con credenciales: {str(e)}")
+                return False
         else:
-            # Inicialización estándar (para desarrollo local)
-            ee.Initialize()
-            return True
+            # Inicialización local
+            try:
+                ee.Initialize()
+                if debug_mode:
+                    st.sidebar.success("✅ Google Earth Engine inicializado (local)")
+                return True
+            except Exception as e:
+                if debug_mode:
+                    st.sidebar.error(f"Error en inicialización local: {str(e)}")
+                    st.sidebar.info("Para autorizar localmente, ejecute: earthengine authenticate")
+                return False
     except Exception as e:
-        st.sidebar.warning(f"No se pudo inicializar Google Earth Engine: {str(e)}")
+        if debug_mode:
+            st.sidebar.error(f"Error general en Earth Engine: {str(e)}")
         return False
 
 # Verificar si Earth Engine está disponible e inicializarlo
 if ee_disponible:
     gee_inicializado = inicializar_earth_engine()
+    if debug_mode:
+        st.sidebar.write(f"- Earth Engine inicializado: {gee_inicializado}")
 else:
     gee_inicializado = False
-
-# Mostrar información sobre el estado de Earth Engine
-if ee_disponible and gee_inicializado:
-    earth_engine_status = "disponible y inicializado"
-elif ee_disponible and not gee_inicializado:
-    earth_engine_status = "disponible pero no inicializado"
-else:
-    earth_engine_status = "no disponible"
 
 # Introducción
 st.markdown(f"""
@@ -115,6 +171,16 @@ def crear_analisis_cultivos(poligonos):
     Args:
         poligonos: Lista de diccionarios con información de polígonos
     """
+    if not ee_disponible:
+        st.error("Google Earth Engine no está disponible. Instala las dependencias necesarias.")
+        st.info("Ejecuta: pip install earthengine-api geemap")
+        return
+    
+    if not gee_inicializado:
+        st.error("Google Earth Engine no está inicializado correctamente.")
+        st.info("Verifica las credenciales o ejecuta: earthengine authenticate")
+        return
+    
     try:
         # Crear un mapa de Earth Engine basado en folium
         m = geemap.Map()
@@ -174,7 +240,7 @@ def crear_analisis_cultivos(poligonos):
         
     except Exception as e:
         st.error(f"Error al crear el análisis de cultivos: {str(e)}")
-        st.info("Intente autenticarse con Google Earth Engine o ejecutar localmente para acceder a esta funcionalidad.")
+        st.info("Si el error persiste, intente autenticarse con Google Earth Engine o ejecutar localmente.")
 
 # Función para normalizar CUIT
 def normalizar_cuit(cuit):
@@ -761,9 +827,8 @@ with tab1:
         except Exception as e:
             st.error(f"Error durante el procesamiento: {str(e)}")
 
-# Aquí deberías incluir el código para las pestañas 2 y 3
-# (El código para las pestañas de "Consulta por Lista de RENSPA" y "Consulta por Múltiples CUITs")
-# Las funciones son similares a las de la pestaña 1, pero con diferentes entradas
+# Aquí se puede incluir el código para las otras pestañas (2 y 3)
+# Se omiten por brevedad, pero puedes ampliar el código según sea necesario
 
 # Información en la barra lateral
 st.sidebar.markdown("---")
@@ -784,7 +849,11 @@ elif ee_disponible and not gee_inicializado:
     st.sidebar.warning("Google Earth Engine está disponible pero no inicializado.")
     st.sidebar.info("""
     Earth Engine requiere autenticación para acceder a los datos satelitales.
-    La autenticación no se pudo completar correctamente.
+    
+    Para habilitarlo:
+    1. Instale las dependencias: pip install earthengine-api geemap
+    2. Autentíquese (local): earthengine authenticate
+    3. Configure credenciales en Streamlit Cloud
     """)
 else:
     st.sidebar.warning("Google Earth Engine no está disponible")
