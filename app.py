@@ -1216,3 +1216,4 @@ st.sidebar.markdown("---")
 st.sidebar.info("Desarrollado para análisis agrícola en Argentina")
 
 
+
