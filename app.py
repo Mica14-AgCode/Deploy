@@ -1214,6 +1214,3 @@ with tab3:
 # Información en el pie de página
 st.sidebar.markdown("---")
 st.sidebar.info("Desarrollado para análisis agrícola en Argentina")
-
-
-
