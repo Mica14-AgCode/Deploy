@@ -4,5 +4,4 @@ numpy==1.26.2
 folium==0.14.0
 streamlit-folium==0.15.0
 requests==2.31.0
-earthengine-api>=0.1.347
-geemap>=0.20.0
+
