@@ -17,6 +17,14 @@ try:
     folium_disponible = True
 except ImportError:
     folium_disponible = False
+
+# Intentar importar matplotlib
+try:
+    import matplotlib.pyplot as plt
+    matplotlib_disponible = True
+except ImportError:
+    matplotlib_disponible = False
+
 # Configuración de la página
 st.set_page_config(
     page_title="Consulta RENSPA - SENASA",
@@ -283,6 +291,51 @@ def mostrar_estadisticas(df_renspa, poligonos=None):
         # Contar RENSPA activos e inactivos
         activos = df_renspa[df_renspa['fecha_baja'].isnull()].shape[0]
         inactivos = df_renspa[~df_renspa['fecha_baja'].isnull()].shape[0]
+        
+        # Crear gráfico de torta para activos/inactivos
+        if matplotlib_disponible:
+            fig, ax = plt.subplots(figsize=(4, 4))
+            ax.pie([activos, inactivos], labels=['Activos', 'Inactivos'], autopct='%1.1f%%', 
+                   colors=['#4CAF50', '#F44336'], startangle=90)
+            ax.axis('equal')
+            st.write("Distribución por estado")
+            st.pyplot(fig)
+        else:
+            st.write("Distribución por estado:")
+            st.write(f"- Activos: {activos} ({activos/len(df_renspa)*100:.1f}%)")
+            st.write(f"- Inactivos: {inactivos} ({inactivos/len(df_renspa)*100:.1f}%)")
+    
+    with col2:
+        # Distribución por localidad
+        if 'localidad' in df_renspa.columns:
+            st.write("Distribución por localidad:")
+            localidad_counts = df_renspa['localidad'].value_counts().head(10)
+            if matplotlib_disponible:
+                fig, ax = plt.subplots(figsize=(5, 4))
+                localidad_counts.plot(kind='barh', ax=ax)
+                ax.set_title("Top 10 localidades")
+                st.pyplot(fig)
+            else:
+                st.write(localidad_counts)
+    
+    with col3:
+        # Distribución por superficie o otra métrica
+        if poligonos:
+            superficies = [p.get('superficie', 0) for p in poligonos]
+            if superficies:
+                st.write("Distribución de superficie:")
+                if matplotlib_disponible:
+                    fig, ax = plt.subplots(figsize=(5, 4))
+                    ax.hist(superficies, bins=10)
+                    ax.set_xlabel('Superficie (ha)')
+                    ax.set_ylabel('Cantidad de RENSPA')
+                    st.pyplot(fig)
+                else:
+                    st.write(f"- Total: {sum(superficies):.2f} ha")
+                    st.write(f"- Promedio: {sum(superficies)/len(superficies):.2f} ha")
+                    st.write(f"- Mínimo: {min(superficies):.2f} ha")
+                    st.write(f"- Máximo: {max(superficies):.2f} ha")
+
 # Crear tabs para las diferentes funcionalidades
 tab1, tab2, tab3 = st.tabs(["Consulta por CUIT", "Consulta por Lista de RENSPA", "Consulta por Múltiples CUITs"])
 
@@ -1214,3 +1267,4 @@ with tab3:
 # Información en el pie de página
 st.sidebar.markdown("---")
 st.sidebar.info("Desarrollado para análisis agrícola en Argentina")
+
