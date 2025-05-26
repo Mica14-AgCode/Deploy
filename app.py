@@ -9,6 +9,15 @@ import zipfile
 from io import BytesIO
 import random
 
+# Intentar importar folium y streamlit_folium
+try:
+    import folium
+    from folium.plugins import MeasureControl, MiniMap, MarkerCluster
+    from streamlit_folium import folium_static
+    folium_disponible = True
+except ImportError:
+    folium_disponible = False
+
 # Configuración de la página
 st.set_page_config(
     page_title="VISU - Visualizador de Campos",
@@ -297,7 +306,72 @@ def extraer_coordenadas(poligono_str):
     
     return None
 
-# Función para mostrar campos en tarjetas
+# Función para crear mapa mejorado
+def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
+    """Crea un mapa folium mejorado con los polígonos proporcionados"""
+    if not folium_disponible:
+        return None
+    
+    # Determinar centro del mapa
+    if center:
+        center_lat, center_lon = center
+    elif poligonos:
+        center_lat = poligonos[0]['coords'][0][1]
+        center_lon = poligonos[0]['coords'][0][0]
+    else:
+        center_lat = -34.603722
+        center_lon = -58.381592
+    
+    # Crear mapa base
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+    
+    # Añadir diferentes capas base
+    folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
+                    name='Google Hybrid', 
+                    attr='Google').add_to(m)
+    folium.TileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', 
+                    name='Google Satellite', 
+                    attr='Google').add_to(m)
+    folium.TileLayer('OpenStreetMap', name='OpenStreetMap').add_to(m)
+    
+    # Colores disponibles (evitando el verde)
+    colores_disponibles = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
+    
+    # Añadir cada polígono al mapa
+    for i, pol in enumerate(poligonos):
+        # Determinar color
+        if cuit_colors and 'cuit' in pol and pol['cuit'] in cuit_colors:
+            color = cuit_colors[pol['cuit']]
+        else:
+            color = colores_disponibles[i % len(colores_disponibles)]
+        
+        # Formatear popup con información
+        popup_text = f"""
+        <b>Campo:</b> {pol.get('titular', 'No disponible')}<br>
+        <b>Localidad:</b> {pol.get('localidad', 'No disponible')}<br>
+        <b>Superficie:</b> {pol.get('superficie', 0)} ha
+        """
+        if 'cuit' in pol:
+            popup_text += f"<br><b>CUIT:</b> {pol['cuit']}"
+        
+        # Añadir polígono al mapa
+        folium.Polygon(
+            locations=[[coord[1], coord[0]] for coord in pol['coords']],
+            color=color,
+            weight=2,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.3,
+            tooltip=f"Campo: {pol.get('titular', 'Sin información')}",
+            popup=popup_text
+        ).add_to(m)
+    
+    # Añadir control de capas
+    folium.LayerControl(position='topright').add_to(m)
+    
+    return m
+
+# Función para mostrar campos en tarjetas (cuando no hay mapa)
 def mostrar_campos_tarjetas(campos_data):
     """Muestra los campos en formato de tarjetas"""
     for campo in campos_data:
@@ -355,70 +429,82 @@ with tab1:
                         st.stop()
                     
                     # Procesar polígonos
-                    campos_con_datos = []
-                    coordenadas_todas = []
+                    poligonos = []
+                    poligonos_sin_coords = []
                     
                     for campo in campos_activos:
                         renspa = campo['renspa']
-                        datos_campo = {
-                            'titular': campo.get('titular', ''),
-                            'localidad': campo.get('localidad', ''),
-                            'provincia': campo.get('provincia', ''),
-                            'superficie': campo.get('superficie', 0),
-                            'cuit': cuit_normalizado
-                        }
                         
-                        # Intentar obtener coordenadas
-                        coords = None
+                        # Primero intentar con los datos que ya tenemos
                         if 'poligono' in campo and campo['poligono']:
                             coords = extraer_coordenadas(campo['poligono'])
+                            if coords:
+                                poligonos.append({
+                                    'coords': coords,
+                                    'titular': campo.get('titular', ''),
+                                    'localidad': campo.get('localidad', ''),
+                                    'superficie': campo.get('superficie', 0),
+                                    'cuit': cuit_normalizado
+                                })
+                                continue
                         
-                        if not coords:
-                            # Si no hay polígono, consultar detalle
-                            resultado_detalle = consultar_campo_detalle(renspa)
-                            
-                            if resultado_detalle and 'items' in resultado_detalle and resultado_detalle['items']:
-                                item_detalle = resultado_detalle['items'][0]
-                                if 'poligono' in item_detalle and item_detalle['poligono']:
-                                    coords = extraer_coordenadas(item_detalle['poligono'])
-                                    datos_campo['superficie'] = item_detalle.get('superficie', 0)
+                        # Si no tenemos polígono, consultar detalle
+                        resultado_detalle = consultar_campo_detalle(renspa)
                         
-                        if coords:
-                            datos_campo['coords'] = coords
-                            coordenadas_todas.append(coords)
+                        if resultado_detalle and 'items' in resultado_detalle and resultado_detalle['items']:
+                            item_detalle = resultado_detalle['items'][0]
+                            if 'poligono' in item_detalle and item_detalle['poligono']:
+                                coords = extraer_coordenadas(item_detalle['poligono'])
+                                if coords:
+                                    poligonos.append({
+                                        'coords': coords,
+                                        'titular': campo.get('titular', ''),
+                                        'localidad': campo.get('localidad', ''),
+                                        'superficie': item_detalle.get('superficie', 0),
+                                        'cuit': cuit_normalizado
+                                    })
+                                else:
+                                    poligonos_sin_coords.append(campo)
+                            else:
+                                poligonos_sin_coords.append(campo)
+                        else:
+                            poligonos_sin_coords.append(campo)
                         
-                        campos_con_datos.append(datos_campo)
                         time.sleep(TIEMPO_ESPERA)
                     
                     # Mostrar resultados
-                    st.success(f"✅ Se encontraron {len(campos_activos)} campos activos")
-                    
-                    # Mostrar información de campos
-                    st.subheader("📋 Información de los campos")
-                    mostrar_campos_tarjetas(campos_con_datos)
-                    
-                    # Si hay coordenadas, ofrecer visualización en Google Maps
-                    if coordenadas_todas:
-                        st.subheader("🗺️ Visualización")
+                    if poligonos:
+                        st.success(f"✅ Se encontraron {len(poligonos)} campos activos con ubicación")
                         
-                        col1, col2 = st.columns(2)
+                        if poligonos_sin_coords:
+                            st.info(f"ℹ️ {len(poligonos_sin_coords)} campos sin coordenadas disponibles")
                         
-                        with col1:
-                            # Enlaces a Google Maps para cada campo
-                            st.write("**Ver en Google Maps:**")
-                            for i, campo in enumerate(campos_con_datos):
+                        # Si folium está disponible, mostrar mapa
+                        if folium_disponible:
+                            st.subheader("📍 Visualización en mapa")
+                            m = crear_mapa_mejorado(poligonos)
+                            if m:
+                                folium_static(m, width=None, height=500)
+                        else:
+                            # Si no hay mapa, mostrar tarjetas y links a Google Maps
+                            st.subheader("📋 Información de los campos")
+                            mostrar_campos_tarjetas(poligonos)
+                            
+                            st.subheader("🗺️ Ver en Google Maps")
+                            for i, campo in enumerate(poligonos):
                                 if 'coords' in campo:
                                     link = generar_link_google_maps(campo['coords'])
                                     if link:
                                         st.markdown(f"[📍 {campo['titular'] or f'Campo {i+1}'}]({link})")
+                            
+                            st.warning("Para visualizar mapas integrados, instala folium y streamlit-folium")
                         
-                        with col2:
-                            # Crear KML para descarga
-                            kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+                        # Botón de descarga KML
+                        kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
-  <name>Campos del productor</name>
-  <Style id="fieldStyle">
+  <n>Campos del productor</n>
+  <Style id="redPoly">
     <LineStyle>
       <color>ff0000ff</color>
       <width>3</width>
@@ -428,61 +514,47 @@ with tab1:
     </PolyStyle>
   </Style>
 """
-                            
-                            for i, campo in enumerate(campos_con_datos):
-                                if 'coords' in campo:
-                                    kml_content += f"""
+                        
+                        for pol in poligonos:
+                            kml_content += f"""
   <Placemark>
-    <name>{campo['titular'] or f'Campo {i+1}'}</name>
-    <description>Localidad: {campo['localidad']} - Superficie: {campo['superficie']:.1f} ha</description>
-    <styleUrl>#fieldStyle</styleUrl>
+    <n>{pol['titular']}</n>
+    <description>Localidad: {pol['localidad']} - Superficie: {pol['superficie']:.1f} ha</description>
+    <styleUrl>#redPoly</styleUrl>
     <Polygon>
       <outerBoundaryIs>
         <LinearRing>
           <coordinates>
 """
-                                    for coord in campo['coords']:
-                                        kml_content += f"{coord[0]},{coord[1]},0\n"
-                                    
-                                    kml_content += """
+                            for coord in pol['coords']:
+                                kml_content += f"{coord[0]},{coord[1]},0\n"
+                            
+                            kml_content += """
           </coordinates>
         </LinearRing>
       </outerBoundaryIs>
     </Polygon>
   </Placemark>
 """
-                            
-                            kml_content += "</Document></kml>"
-                            
-                            # Crear KMZ
-                            kmz_buffer = BytesIO()
-                            with zipfile.ZipFile(kmz_buffer, 'w', zipfile.ZIP_DEFLATED) as kmz:
-                                kmz.writestr("doc.kml", kml_content)
-                            
-                            kmz_buffer.seek(0)
-                            
-                            st.download_button(
-                                label="📥 Descargar KML",
-                                data=kmz_buffer,
-                                file_name=f"campos_{cuit_normalizado.replace('-', '')}.kmz",
-                                mime="application/vnd.google-earth.kmz",
-                                help="Podés abrir este archivo en Google Earth"
-                            )
-                    
-                    # Mostrar resumen estadístico
-                    st.subheader("📊 Resumen")
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.metric("Total de campos", len(campos_activos))
-                    
-                    with col2:
-                        superficie_total = sum(c.get('superficie', 0) for c in campos_con_datos)
-                        st.metric("Superficie total", f"{superficie_total:.1f} ha")
-                    
-                    with col3:
-                        campos_con_coords = sum(1 for c in campos_con_datos if 'coords' in c)
-                        st.metric("Con ubicación", campos_con_coords)
+                        
+                        kml_content += "</Document></kml>"
+                        
+                        # Crear KMZ
+                        kmz_buffer = BytesIO()
+                        with zipfile.ZipFile(kmz_buffer, 'w', zipfile.ZIP_DEFLATED) as kmz:
+                            kmz.writestr("doc.kml", kml_content)
+                        
+                        kmz_buffer.seek(0)
+                        
+                        st.download_button(
+                            label="📥 Descargar KML",
+                            data=kmz_buffer,
+                            file_name=f"campos_{cuit_normalizado.replace('-', '')}.kmz",
+                            mime="application/vnd.google-earth.kmz",
+                            help="Podés abrir este archivo en Google Earth"
+                        )
+                    else:
+                        st.warning("No se pudieron obtener las ubicaciones de los campos")
                         
             except ValueError as e:
                 st.error("CUIT inválido. Verificá el formato.")
@@ -504,7 +576,11 @@ with tab2:
             cuit_list = [line.strip() for line in cuits_input.split('\n') if line.strip()]
             
             if cuit_list:
-                todos_campos_data = []
+                # Colores para diferentes CUITs
+                colores = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
+                cuit_colors = {}
+                
+                todos_poligonos = []
                 cuits_procesados = 0
                 cuits_con_error = []
                 
@@ -514,26 +590,41 @@ with tab2:
                     for i, cuit in enumerate(cuit_list):
                         try:
                             cuit_normalizado = normalizar_cuit(cuit)
+                            cuit_colors[cuit_normalizado] = colores[i % len(colores)]
                             
                             campos = obtener_datos_por_cuit(cuit_normalizado)
                             campos_activos = [c for c in campos if c.get('fecha_baja') is None]
                             
                             for campo in campos_activos:
-                                datos_campo = {
-                                    'titular': campo.get('titular', ''),
-                                    'localidad': campo.get('localidad', ''),
-                                    'provincia': campo.get('provincia', ''),
-                                    'superficie': campo.get('superficie', 0),
-                                    'cuit': cuit_normalizado
-                                }
-                                
-                                # Intentar obtener coordenadas
+                                # Intentar extraer polígono de los datos básicos
                                 if 'poligono' in campo and campo['poligono']:
                                     coords = extraer_coordenadas(campo['poligono'])
                                     if coords:
-                                        datos_campo['coords'] = coords
+                                        todos_poligonos.append({
+                                            'coords': coords,
+                                            'titular': campo.get('titular', ''),
+                                            'localidad': campo.get('localidad', ''),
+                                            'superficie': campo.get('superficie', 0),
+                                            'cuit': cuit_normalizado
+                                        })
+                                        continue
                                 
-                                todos_campos_data.append(datos_campo)
+                                # Si no hay polígono, consultar detalle
+                                resultado_detalle = consultar_campo_detalle(campo['renspa'])
+                                
+                                if resultado_detalle and 'items' in resultado_detalle and resultado_detalle['items']:
+                                    item_detalle = resultado_detalle['items'][0]
+                                    if 'poligono' in item_detalle and item_detalle['poligono']:
+                                        coords = extraer_coordenadas(item_detalle['poligono'])
+                                        if coords:
+                                            todos_poligonos.append({
+                                                'coords': coords,
+                                                'titular': campo.get('titular', ''),
+                                                'localidad': campo.get('localidad', ''),
+                                                'superficie': item_detalle.get('superficie', 0),
+                                                'cuit': cuit_normalizado
+                                            })
+                                
                                 time.sleep(TIEMPO_ESPERA)
                             
                             cuits_procesados += 1
@@ -544,97 +635,31 @@ with tab2:
                             continue
                     
                     # Mostrar resumen
-                    st.subheader("📊 Resumen del procesamiento")
-                    col1, col2, col3, col4 = st.columns(4)
+                    col1, col2, col3 = st.columns(3)
                     with col1:
                         st.metric("CUITs procesados", cuits_procesados)
                     with col2:
-                        st.metric("Campos encontrados", len(todos_campos_data))
+                        st.metric("Campos encontrados", len(todos_poligonos))
                     with col3:
-                        superficie_total = sum(c.get('superficie', 0) for c in todos_campos_data)
-                        st.metric("Superficie total", f"{superficie_total:.1f} ha")
-                    with col4:
                         st.metric("Con errores", len(cuits_con_error))
                     
-                    if todos_campos_data:
-                        # Agrupar por CUIT
-                        st.subheader("📋 Campos por productor")
-                        
-                        cuits_unicos = list(set(c['cuit'] for c in todos_campos_data))
-                        for cuit in cuits_unicos:
-                            campos_cuit = [c for c in todos_campos_data if c['cuit'] == cuit]
+                    if todos_poligonos:
+                        # Si folium está disponible, mostrar mapa
+                        if folium_disponible:
+                            st.subheader("📍 Visualización en mapa")
+                            mapa = crear_mapa_mejorado(todos_poligonos, cuit_colors=cuit_colors)
+                            if mapa:
+                                folium_static(mapa, width=None, height=500)
+                        else:
+                            # Si no hay mapa, mostrar tarjetas agrupadas por CUIT
+                            st.subheader("📋 Campos por productor")
+                            cuits_unicos = list(set(c['cuit'] for c in todos_poligonos))
+                            for cuit in cuits_unicos:
+                                campos_cuit = [c for c in todos_poligonos if c['cuit'] == cuit]
+                                with st.expander(f"CUIT: {cuit} ({len(campos_cuit)} campos)"):
+                                    mostrar_campos_tarjetas(campos_cuit)
                             
-                            with st.expander(f"CUIT: {cuit} ({len(campos_cuit)} campos)"):
-                                mostrar_campos_tarjetas(campos_cuit)
-                        
-                        # Generar KML con todos los campos
-                        if any('coords' in c for c in todos_campos_data):
-                            kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-<Document>
-  <name>Campos múltiples productores</name>
-"""
-                            
-                            # Colores para diferentes CUITs
-                            colores_kml = ['ff0000ff', 'ffff0000', 'ff00ff00', 'ffffff00', 'ffff00ff', 'ff00ffff']
-                            cuit_color_map = {cuit: colores_kml[i % len(colores_kml)] for i, cuit in enumerate(cuits_unicos)}
-                            
-                            # Crear estilos
-                            for cuit, color in cuit_color_map.items():
-                                cuit_clean = cuit.replace('-', '_')
-                                kml_content += f"""
-  <Style id="style_{cuit_clean}">
-    <LineStyle>
-      <color>{color}</color>
-      <width>3</width>
-    </LineStyle>
-    <PolyStyle>
-      <color>7f{color[2:]}</color>
-    </PolyStyle>
-  </Style>
-"""
-                            
-                            # Añadir placemarks
-                            for campo in todos_campos_data:
-                                if 'coords' in campo:
-                                    cuit_clean = campo['cuit'].replace('-', '_')
-                                    kml_content += f"""
-  <Placemark>
-    <name>{campo['titular']}</name>
-    <description>CUIT: {campo['cuit']} - Localidad: {campo['localidad']} - Superficie: {campo['superficie']:.1f} ha</description>
-    <styleUrl>#style_{cuit_clean}</styleUrl>
-    <Polygon>
-      <outerBoundaryIs>
-        <LinearRing>
-          <coordinates>
-"""
-                                    for coord in campo['coords']:
-                                        kml_content += f"{coord[0]},{coord[1]},0\n"
-                                    
-                                    kml_content += """
-          </coordinates>
-        </LinearRing>
-      </outerBoundaryIs>
-    </Polygon>
-  </Placemark>
-"""
-                            
-                            kml_content += "</Document></kml>"
-                            
-                            # Crear KMZ
-                            kmz_buffer = BytesIO()
-                            with zipfile.ZipFile(kmz_buffer, 'w', zipfile.ZIP_DEFLATED) as kmz:
-                                kmz.writestr("doc.kml", kml_content)
-                            
-                            kmz_buffer.seek(0)
-                            
-                            st.download_button(
-                                label="📥 Descargar KML con todos los campos",
-                                data=kmz_buffer,
-                                file_name="campos_multiples.kmz",
-                                mime="application/vnd.google-earth.kmz",
-                                help="Podés abrir este archivo en Google Earth"
-                            )
+                            st.warning("Para visualizar mapas integrados, instala folium y streamlit-folium")
                     else:
                         st.warning("No se encontraron campos para los CUITs ingresados")
         else:
