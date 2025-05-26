@@ -86,6 +86,26 @@ st.markdown("""
         font-weight: 300;
     }
     
+    /* Estilos para mejorar legibilidad en móvil */
+    .stTextInput label {
+        color: #E0E0E0 !important;
+        font-size: 16px !important;
+    }
+    
+    .stRadio label {
+        color: #E0E0E0 !important;
+        font-size: 16px !important;
+    }
+    
+    .stTextArea label {
+        color: #E0E0E0 !important;
+        font-size: 16px !important;
+    }
+    
+    p {
+        color: #E0E0E0 !important;
+    }
+    
     /* Estilos mobile-friendly */
     .stButton > button {
         width: 100%;
@@ -326,47 +346,182 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
         pass
     
     # Colores disponibles (evitando el verde)
-    colores_disponibles = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
+    colores_base = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
     
-    # Crear un grupo de características para los polígonos
-    fg = folium.FeatureGroup(name='Campos')
+    # Crear grupos para campos activos e históricos
+    fg_activos = folium.FeatureGroup(name='Campos Activos', show=True)
+    fg_historicos = folium.FeatureGroup(name='Campos Históricos', show=True)
     
-    # Añadir polígonos
+    # Agrupar polígonos por titular y estado
+    titulares_data = {}
+    
     for i, pol in enumerate(poligonos):
-        # Determinar color
-        if cuit_colors and 'cuit' in pol and pol['cuit'] in cuit_colors:
-            color = cuit_colors[pol['cuit']]
+        titular = pol.get('titular', 'Sin información')
+        activo = pol.get('activo', True)
+        cuit = pol.get('cuit', '')
+        
+        # Crear clave única para titular
+        key = f"{titular}_{cuit}"
+        
+        if key not in titulares_data:
+            # Asignar color base para este titular
+            if cuit_colors and cuit in cuit_colors:
+                color_base = cuit_colors[cuit]
+            else:
+                color_base = colores_base[len(titulares_data) % len(colores_base)]
+            
+            titulares_data[key] = {
+                'titular': titular,
+                'cuit': cuit,
+                'color_base': color_base,
+                'activos': [],
+                'historicos': []
+            }
+        
+        # Agregar polígono a la lista correspondiente
+        if activo:
+            titulares_data[key]['activos'].append(pol)
         else:
-            color = colores_disponibles[i % len(colores_disponibles)]
-        
-        # Información del popup con fecha de baja si corresponde
-        popup_text = f"""
-        <div style='font-family: Arial; font-size: 14px; color: #333;'>
-        <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
-        <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
-        <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha<br>
-        <b>Estado:</b> {'Activo' if pol.get('activo', True) else 'Inactivo'}
-        """
-        
-        # Si el campo está inactivo, mostrar fecha de baja
-        if not pol.get('activo', True) and pol.get('fecha_baja'):
-            popup_text += f"<br><b>Trabajado hasta:</b> {pol.get('fecha_baja', 'No disponible')}"
-        
-        popup_text += "</div>"
-        
-        # Añadir polígono al grupo
-        folium.Polygon(
-            locations=[[coord[1], coord[0]] for coord in pol['coords']],
-            color=color,
-            weight=3,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.4,
-            popup=folium.Popup(popup_text, max_width=200)
-        ).add_to(fg)
+            titulares_data[key]['historicos'].append(pol)
     
-    # Añadir el grupo al mapa
-    fg.add_to(m)
+    # Crear leyenda HTML
+    leyenda_html = '''
+    <div id='leyenda-campos' style='
+        position: fixed;
+        bottom: 30px;
+        right: 10px;
+        width: 280px;
+        background-color: rgba(255, 255, 255, 0.95);
+        border: 2px solid #00D2BE;
+        border-radius: 10px;
+        padding: 10px;
+        font-size: 12px;
+        z-index: 9999;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        max-height: 400px;
+        overflow-y: auto;
+    '>
+        <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
+            <h4 style='margin: 0; color: #333;'>Leyenda</h4>
+            <button onclick='toggleLeyenda()' style='
+                background: none;
+                border: none;
+                font-size: 16px;
+                cursor: pointer;
+                color: #333;
+            '>▼</button>
+        </div>
+        <div id='leyenda-content' style='display: block;'>
+    '''
+    
+    # Añadir items a la leyenda
+    for key, data in titulares_data.items():
+        color_base = data['color_base']
+        titular = data['titular']
+        
+        if data['activos']:
+            leyenda_html += f'''
+            <div style='margin: 5px 0;'>
+                <span style='
+                    display: inline-block;
+                    width: 15px;
+                    height: 15px;
+                    background-color: {color_base};
+                    border: 1px solid #333;
+                    margin-right: 5px;
+                    vertical-align: middle;
+                '></span>
+                <span style='color: #333; font-size: 11px;'>{titular} (Activo)</span>
+            </div>
+            '''
+        
+        if data['historicos']:
+            # Color más claro para históricos
+            color_historico = color_base + '66'  # Agregar transparencia
+            leyenda_html += f'''
+            <div style='margin: 5px 0;'>
+                <span style='
+                    display: inline-block;
+                    width: 15px;
+                    height: 15px;
+                    background-color: {color_historico};
+                    border: 1px dashed #333;
+                    margin-right: 5px;
+                    vertical-align: middle;
+                '></span>
+                <span style='color: #666; font-size: 11px;'>{titular} (Histórico)</span>
+            </div>
+            '''
+    
+    leyenda_html += '''
+        </div>
+    </div>
+    <script>
+    function toggleLeyenda() {
+        var content = document.getElementById('leyenda-content');
+        var button = event.target;
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            button.innerHTML = '▼';
+        } else {
+            content.style.display = 'none';
+            button.innerHTML = '▶';
+        }
+    }
+    </script>
+    '''
+    
+    # Añadir polígonos al mapa
+    for key, data in titulares_data.items():
+        color_base = data['color_base']
+        
+        # Campos activos - color sólido
+        for pol in data['activos']:
+            popup_text = f"""
+            <div style='font-family: Arial; font-size: 14px; color: #333;'>
+            <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
+            <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
+            <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha<br>
+            <b>Estado:</b> Activo
+            </div>
+            """
+            
+            folium.Polygon(
+                locations=[[coord[1], coord[0]] for coord in pol['coords']],
+                color=color_base,
+                weight=3,
+                fill=True,
+                fill_color=color_base,
+                fill_opacity=0.5,
+                popup=folium.Popup(popup_text, max_width=200)
+            ).add_to(fg_activos)
+        
+        # Campos históricos - color con transparencia y borde punteado
+        for pol in data['historicos']:
+            popup_text = f"""
+            <div style='font-family: Arial; font-size: 14px; color: #333;'>
+            <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
+            <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
+            <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha<br>
+            <b>Estado:</b> Inactivo<br>
+            <b>Trabajado hasta:</b> {pol.get('fecha_baja', 'No disponible')}
+            </div>
+            """
+            
+            folium.Polygon(
+                locations=[[coord[1], coord[0]] for coord in pol['coords']],
+                color=color_base,
+                weight=2,
+                fill=True,
+                fill_color=color_base,
+                fill_opacity=0.2,  # Menor opacidad para históricos
+                dashArray='5, 5',  # Línea punteada
+                popup=folium.Popup(popup_text, max_width=200)
+            ).add_to(fg_historicos)
+    
+    # Añadir los grupos al mapa
+    fg_activos.add_to(m)
+    fg_historicos.add_to(m)
     
     # Control de capas en posición superior derecha con estilo desplegable
     folium.LayerControl(
@@ -374,6 +529,9 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
         collapsed=True,  # Empezar colapsado
         autoZIndex=True
     ).add_to(m)
+    
+    # Añadir la leyenda al mapa
+    m.get_root().html.add_child(folium.Element(leyenda_html))
     
     return m
 
@@ -500,7 +658,7 @@ with tab1:
                         kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
-  <name>Campos del productor</name>
+  <n>Campos del productor</n>
   <Style id="redPoly">
     <LineStyle>
       <color>ff0000ff</color>
@@ -515,7 +673,7 @@ with tab1:
                         for pol in poligonos:
                             kml_content += f"""
   <Placemark>
-    <name>{pol['titular']}</name>
+    <n>{pol['titular']}</n>
     <description>Localidad: {pol['localidad']} - Superficie: {pol['superficie']:.1f} ha</description>
     <styleUrl>#redPoly</styleUrl>
     <Polygon>
@@ -724,6 +882,44 @@ with tab2:
                                 folium_static(mapa, width=None, height=600)
                         else:
                             st.warning("Para visualizar mapas, instala folium y streamlit-folium")
+                        
+                        # Mostrar estadísticas detalladas por CUIT
+                        st.subheader("📊 Estadísticas por productor")
+                        
+                        # Agrupar datos por CUIT
+                        cuits_unicos = list(set(p['cuit'] for p in todos_poligonos))
+                        
+                        for cuit in cuits_unicos:
+                            campos_cuit = [p for p in todos_poligonos if p['cuit'] == cuit]
+                            campos_activos_cuit = [p for p in campos_cuit if p.get('activo', True)]
+                            campos_historicos_cuit = [p for p in campos_cuit if not p.get('activo', True)]
+                            superficie_total_cuit = sum(p.get('superficie', 0) for p in campos_cuit)
+                            
+                            # Obtener nombre del titular (usar el primero disponible)
+                            titular = campos_cuit[0].get('titular', 'Sin información') if campos_cuit else 'Sin información'
+                            
+                            with st.expander(f"📊 {titular} - CUIT: {cuit}"):
+                                col1, col2, col3, col4 = st.columns(4)
+                                with col1:
+                                    st.metric("Total campos", len(campos_cuit))
+                                with col2:
+                                    st.metric("Campos activos", len(campos_activos_cuit))
+                                with col3:
+                                    st.metric("Campos históricos", len(campos_historicos_cuit))
+                                with col4:
+                                    st.metric("Superficie total", f"{superficie_total_cuit:,.1f} ha")
+                                
+                                # Detalles de campos
+                                if campos_activos_cuit:
+                                    st.write("**Campos Activos:**")
+                                    for campo in campos_activos_cuit:
+                                        st.write(f"• {campo.get('localidad', 'Sin localidad')} - {campo.get('superficie', 0):.1f} ha")
+                                
+                                if campos_historicos_cuit:
+                                    st.write("**Campos Históricos:**")
+                                    for campo in campos_historicos_cuit:
+                                        fecha_baja = campo.get('fecha_baja', 'No disponible')
+                                        st.write(f"• {campo.get('localidad', 'Sin localidad')} - {campo.get('superficie', 0):.1f} ha (hasta {fecha_baja})")
                     else:
                         st.warning("No se encontraron campos para los CUITs ingresados")
         else:
