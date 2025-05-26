@@ -9,6 +9,13 @@ import zipfile
 from io import BytesIO
 import random
 
+# Configuración de la página
+st.set_page_config(
+    page_title="VISU - Visualizador de Campos",
+    page_icon="👁",
+    layout="wide"
+)
+
 # Intentar importar folium y streamlit_folium
 try:
     import folium
@@ -17,13 +24,6 @@ try:
     folium_disponible = True
 except ImportError:
     folium_disponible = False
-
-# Configuración de la página
-st.set_page_config(
-    page_title="VISU - Visualizador de Campos",
-    page_icon="👁",
-    layout="wide"
-)
 
 # Configuraciones globales
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
@@ -169,39 +169,6 @@ st.markdown("""
     .stSpinner > div {
         border-color: #00D2BE;
     }
-    
-    /* Estilos para las tarjetas de campos */
-    .campo-card {
-        background: linear-gradient(135deg, #1a3a3a 0%, #0d2626 100%);
-        border: 1px solid #00D2BE;
-        border-radius: 10px;
-        padding: 15px;
-        margin: 10px 0;
-        box-shadow: 0 4px 6px rgba(0, 210, 190, 0.1);
-    }
-    
-    .campo-title {
-        color: #00D2BE;
-        font-size: 18px;
-        font-weight: bold;
-        margin-bottom: 10px;
-    }
-    
-    .campo-info {
-        color: #C0C0C0;
-        font-size: 14px;
-        line-height: 1.6;
-    }
-    
-    .superficie-badge {
-        background-color: #00D2BE;
-        color: #0a0a0a;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-weight: bold;
-        display: inline-block;
-        margin-top: 5px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -306,10 +273,11 @@ def extraer_coordenadas(poligono_str):
     
     return None
 
-# Función para crear mapa mejorado
-def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
-    """Crea un mapa folium mejorado con los polígonos proporcionados"""
+# Función para crear mapa optimizado para mobile
+def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
+    """Crea un mapa folium optimizado para móvil"""
     if not folium_disponible:
+        st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium streamlit-folium")
         return None
     
     # Determinar centro del mapa
@@ -322,22 +290,37 @@ def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
         center_lat = -34.603722
         center_lon = -58.381592
     
-    # Crear mapa base
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+    # Crear mapa base con controles simplificados
+    m = folium.Map(
+        location=[center_lat, center_lon], 
+        zoom_start=10,
+        zoom_control=False,  # Desactivar controles de zoom
+        attributionControl=False,
+        prefer_canvas=True
+    )
     
-    # Añadir diferentes capas base
+    # Añadir capas base
     folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
-                    name='Google Hybrid', 
+                    name='Satélite', 
                     attr='Google').add_to(m)
-    folium.TileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', 
-                    name='Google Satellite', 
-                    attr='Google').add_to(m)
-    folium.TileLayer('OpenStreetMap', name='OpenStreetMap').add_to(m)
+    folium.TileLayer('OpenStreetMap', name='Mapa').add_to(m)
+    
+    # Añadir buscador de localidades
+    try:
+        from folium.plugins import Geocoder
+        Geocoder(
+            collapsed=True,
+            position='topleft',
+            add_marker=False,
+            placeholder='Buscar localidad...'
+        ).add_to(m)
+    except:
+        pass
     
     # Colores disponibles (evitando el verde)
     colores_disponibles = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
     
-    # Añadir cada polígono al mapa
+    # Añadir polígonos
     for i, pol in enumerate(poligonos):
         # Determinar color
         if cuit_colors and 'cuit' in pol and pol['cuit'] in cuit_colors:
@@ -345,61 +328,30 @@ def crear_mapa_mejorado(poligonos, center=None, cuit_colors=None):
         else:
             color = colores_disponibles[i % len(colores_disponibles)]
         
-        # Formatear popup con información
+        # Información del popup simplificada
         popup_text = f"""
-        <b>Campo:</b> {pol.get('titular', 'No disponible')}<br>
-        <b>Localidad:</b> {pol.get('localidad', 'No disponible')}<br>
-        <b>Superficie:</b> {pol.get('superficie', 0)} ha
+        <div style='font-family: Arial; font-size: 14px; color: #333;'>
+        <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
+        <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
+        <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha
+        </div>
         """
-        if 'cuit' in pol:
-            popup_text += f"<br><b>CUIT:</b> {pol['cuit']}"
         
-        # Añadir polígono al mapa
+        # Añadir polígono
         folium.Polygon(
             locations=[[coord[1], coord[0]] for coord in pol['coords']],
             color=color,
-            weight=2,
+            weight=3,
             fill=True,
             fill_color=color,
-            fill_opacity=0.3,
-            tooltip=f"Campo: {pol.get('titular', 'Sin información')}",
-            popup=popup_text
+            fill_opacity=0.4,
+            popup=folium.Popup(popup_text, max_width=200)
         ).add_to(m)
     
-    # Añadir control de capas
-    folium.LayerControl(position='topright').add_to(m)
+    # Control de capas en posición derecha
+    folium.LayerControl(position='topright', collapsed=False).add_to(m)
     
     return m
-
-# Función para mostrar campos en tarjetas (cuando no hay mapa)
-def mostrar_campos_tarjetas(campos_data):
-    """Muestra los campos en formato de tarjetas"""
-    for campo in campos_data:
-        st.markdown(f"""
-        <div class="campo-card">
-            <div class="campo-title">📍 {campo.get('titular', 'Campo sin nombre')}</div>
-            <div class="campo-info">
-                <strong>Localidad:</strong> {campo.get('localidad', 'No especificada')}<br>
-                <strong>Provincia:</strong> {campo.get('provincia', 'No especificada')}
-            </div>
-            <div class="superficie-badge">{campo.get('superficie', 0):.1f} hectáreas</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-# Función para generar link de Google Maps
-def generar_link_google_maps(coords):
-    """Genera un link para ver el polígono en Google Maps"""
-    if not coords:
-        return None
-    
-    # Usar el centro del polígono
-    lats = [c[1] for c in coords]
-    lons = [c[0] for c in coords]
-    center_lat = sum(lats) / len(lats)
-    center_lon = sum(lons) / len(lons)
-    
-    # Crear URL de Google Maps
-    return f"https://www.google.com/maps/@{center_lat},{center_lon},15z"
 
 # Crear tabs
 tab1, tab2 = st.tabs(["🔍 Buscar por CUIT", "📋 Lista de CUITs"])
@@ -479,31 +431,20 @@ with tab1:
                         if poligonos_sin_coords:
                             st.info(f"ℹ️ {len(poligonos_sin_coords)} campos sin coordenadas disponibles")
                         
-                        # Si folium está disponible, mostrar mapa
+                        # Mostrar mapa si está disponible
                         if folium_disponible:
-                            st.subheader("📍 Visualización en mapa")
-                            m = crear_mapa_mejorado(poligonos)
-                            if m:
-                                folium_static(m, width=None, height=500)
+                            mapa = crear_mapa_mobile(poligonos)
+                            if mapa:
+                                folium_static(mapa, width=None, height=500)
                         else:
-                            # Si no hay mapa, mostrar tarjetas y links a Google Maps
-                            st.subheader("📋 Información de los campos")
-                            mostrar_campos_tarjetas(poligonos)
-                            
-                            st.subheader("🗺️ Ver en Google Maps")
-                            for i, campo in enumerate(poligonos):
-                                if 'coords' in campo:
-                                    link = generar_link_google_maps(campo['coords'])
-                                    if link:
-                                        st.markdown(f"[📍 {campo['titular'] or f'Campo {i+1}'}]({link})")
-                            
-                            st.warning("Para visualizar mapas integrados, instala folium y streamlit-folium")
+                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
                         
-                        # Botón de descarga KML
+                        # Botón de descarga
+                        # Crear KML
                         kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
-  <n>Campos del productor</n>
+  <name>Campos del productor</name>
   <Style id="redPoly">
     <LineStyle>
       <color>ff0000ff</color>
@@ -518,7 +459,7 @@ with tab1:
                         for pol in poligonos:
                             kml_content += f"""
   <Placemark>
-    <n>{pol['titular']}</n>
+    <name>{pol['titular']}</name>
     <description>Localidad: {pol['localidad']} - Superficie: {pol['superficie']:.1f} ha</description>
     <styleUrl>#redPoly</styleUrl>
     <Polygon>
@@ -551,7 +492,6 @@ with tab1:
                             data=kmz_buffer,
                             file_name=f"campos_{cuit_normalizado.replace('-', '')}.kmz",
                             mime="application/vnd.google-earth.kmz",
-                            help="Podés abrir este archivo en Google Earth"
                         )
                     else:
                         st.warning("No se pudieron obtener las ubicaciones de los campos")
@@ -644,22 +584,13 @@ with tab2:
                         st.metric("Con errores", len(cuits_con_error))
                     
                     if todos_poligonos:
-                        # Si folium está disponible, mostrar mapa
+                        # Mostrar mapa si está disponible
                         if folium_disponible:
-                            st.subheader("📍 Visualización en mapa")
-                            mapa = crear_mapa_mejorado(todos_poligonos, cuit_colors=cuit_colors)
+                            mapa = crear_mapa_mobile(todos_poligonos, cuit_colors=cuit_colors)
                             if mapa:
                                 folium_static(mapa, width=None, height=500)
                         else:
-                            # Si no hay mapa, mostrar tarjetas agrupadas por CUIT
-                            st.subheader("📋 Campos por productor")
-                            cuits_unicos = list(set(c['cuit'] for c in todos_poligonos))
-                            for cuit in cuits_unicos:
-                                campos_cuit = [c for c in todos_poligonos if c['cuit'] == cuit]
-                                with st.expander(f"CUIT: {cuit} ({len(campos_cuit)} campos)"):
-                                    mostrar_campos_tarjetas(campos_cuit)
-                            
-                            st.warning("Para visualizar mapas integrados, instala folium y streamlit-folium")
+                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
                     else:
                         st.warning("No se encontraron campos para los CUITs ingresados")
         else:
