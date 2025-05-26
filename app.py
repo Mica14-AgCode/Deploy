@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,21 +10,28 @@ import zipfile
 from io import BytesIO
 import random
 
-# Intentar importar folium y streamlit_folium
-try:
-    import folium
-    from folium.plugins import MarkerCluster, Geocoder
-    from streamlit_folium import folium_static
-    folium_disponible = True
-except ImportError:
-    folium_disponible = False
-
 # Configuración de la página
 st.set_page_config(
-    page_title="VISU - Buscador de Campos",
+    page_title="VISU - Visualizador de Campos",
     page_icon="👁",
     layout="wide"
 )
+
+# Verificar si las librerías del mapa están instaladas
+try:
+    import folium
+    from streamlit_folium import folium_static
+    MAPA_DISPONIBLE = True
+except ImportError:
+    MAPA_DISPONIBLE = False
+    st.error("""
+    ⚠️ **Librerías de mapas no instaladas**
+    
+    Para visualizar los mapas, ejecutá en la terminal:
+    ```
+    pip install folium streamlit-folium
+    ```
+    """)
 
 # Configuraciones globales
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
@@ -77,6 +85,14 @@ st.markdown("""
         box-shadow: 0 0 20px #00D2BE;
     }
     
+    .tagline {
+        font-size: 16px;
+        color: #00D2BE;
+        letter-spacing: 2px;
+        margin-top: 15px;
+        font-weight: 300;
+    }
+    
     /* Estilos mobile-friendly */
     .stButton > button {
         width: 100%;
@@ -117,14 +133,6 @@ st.markdown("""
     .main {
         background-color: #0a0a0a;
         color: white;
-    }
-    
-    /* Título principal */
-    h2 {
-        text-align: center;
-        font-size: 24px;
-        margin-bottom: 20px;
-        color: #E0E0E0;
     }
     
     /* Tabs personalizados */
@@ -172,7 +180,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Logo VISU
+# Logo VISU con tagline
 st.markdown("""
 <div class="visu-logo-container">
     <div class="minimal-container">
@@ -180,12 +188,10 @@ st.markdown("""
         <div class="eye-underline">
             <div class="eye-dot"></div>
         </div>
+        <div class="tagline">Donde el agro deja de ser un misterio</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
-
-# Título principal
-st.markdown("<h2>📍 Encontrá donde trabaja el productor</h2>", unsafe_allow_html=True)
 
 # Función para normalizar CUIT
 def normalizar_cuit(cuit):
@@ -278,8 +284,7 @@ def extraer_coordenadas(poligono_str):
 # Función para crear mapa optimizado para mobile
 def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
     """Crea un mapa folium optimizado para móvil"""
-    if not folium_disponible:
-        st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium streamlit-folium")
+    if not MAPA_DISPONIBLE:
         return None
     
     # Determinar centro del mapa
@@ -304,8 +309,11 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
     # Añadir capas base
     folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
                     name='Satélite', 
-                    attr='Google').add_to(m)
-    folium.TileLayer('OpenStreetMap', name='Mapa').add_to(m)
+                    attr='Google',
+                    control=True).add_to(m)
+    folium.TileLayer('OpenStreetMap', 
+                    name='Mapa',
+                    control=True).add_to(m)
     
     # Colores disponibles (evitando el verde)
     colores_disponibles = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
@@ -338,13 +346,17 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
             popup=folium.Popup(popup_text, max_width=200)
         ).add_to(m)
     
-    # Añadir buscador de localidades
-    Geocoder(
-        collapsed=True,
-        position='topleft',
-        add_marker=False,
-        placeholder='Buscar localidad...'
-    ).add_to(m)
+    # Añadir buscador de localidades (solo si está disponible)
+    try:
+        from folium.plugins import Geocoder
+        Geocoder(
+            collapsed=True,
+            position='topleft',
+            add_marker=False,
+            placeholder='Buscar localidad...'
+        ).add_to(m)
+    except:
+        pass
     
     # Control de capas en posición derecha
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
@@ -380,6 +392,8 @@ with tab1:
                     
                     # Procesar polígonos
                     poligonos = []
+                    poligonos_sin_coords = []
+                    
                     for campo in campos_activos:
                         renspa = campo['renspa']
                         
@@ -411,19 +425,27 @@ with tab1:
                                         'superficie': item_detalle.get('superficie', 0),
                                         'cuit': cuit_normalizado
                                     })
+                                else:
+                                    poligonos_sin_coords.append(campo)
+                            else:
+                                poligonos_sin_coords.append(campo)
+                        else:
+                            poligonos_sin_coords.append(campo)
                         
                         time.sleep(TIEMPO_ESPERA)
                     
+                    # Mostrar resultados
                     if poligonos:
-                        st.success(f"Se encontraron {len(poligonos)} campos activos")
+                        st.success(f"✅ Se encontraron {len(poligonos)} campos activos con ubicación")
                         
-                        # Mostrar mapa
-                        if folium_disponible:
+                        if poligonos_sin_coords:
+                            st.info(f"ℹ️ {len(poligonos_sin_coords)} campos sin coordenadas disponibles")
+                        
+                        # Mostrar mapa si está disponible
+                        if MAPA_DISPONIBLE:
                             mapa = crear_mapa_mobile(poligonos)
                             if mapa:
                                 folium_static(mapa, width=None, height=500)
-                        else:
-                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
                         
                         # Botón de descarga
                         # Crear KML
@@ -508,6 +530,7 @@ with tab2:
                 
                 todos_poligonos = []
                 cuits_procesados = 0
+                cuits_con_error = []
                 
                 with st.spinner('Procesando...'):
                     progress_bar = st.progress(0)
@@ -556,18 +579,24 @@ with tab2:
                             progress_bar.progress((i + 1) / len(cuit_list))
                             
                         except Exception as e:
+                            cuits_con_error.append(cuit)
                             continue
                     
+                    # Mostrar resumen
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("CUITs procesados", cuits_procesados)
+                    with col2:
+                        st.metric("Campos encontrados", len(todos_poligonos))
+                    with col3:
+                        st.metric("Con errores", len(cuits_con_error))
+                    
                     if todos_poligonos:
-                        st.success(f"Se encontraron {len(todos_poligonos)} campos en total")
-                        
-                        # Mostrar mapa
-                        if folium_disponible:
+                        # Mostrar mapa si está disponible
+                        if MAPA_DISPONIBLE:
                             mapa = crear_mapa_mobile(todos_poligonos, cuit_colors=cuit_colors)
                             if mapa:
                                 folium_static(mapa, width=None, height=500)
-                        else:
-                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
                     else:
                         st.warning("No se encontraron campos para los CUITs ingresados")
         else:
