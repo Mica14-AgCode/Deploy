@@ -20,8 +20,8 @@ except ImportError:
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Buscador de Campos",
-    page_icon="📍",
+    page_title="VISU - Buscador de Campos",
+    page_icon="👁",
     layout="wide"
 )
 
@@ -29,7 +29,7 @@ st.set_page_config(
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
 TIEMPO_ESPERA = 0.5
 
-# CSS personalizado para mobile
+# CSS personalizado para mobile con logo VISU
 st.markdown("""
 <style>
     /* Ocultar elementos de Streamlit */
@@ -37,38 +37,94 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
+    /* Logo VISU */
+    .visu-logo-container {
+        text-align: center;
+        margin: 20px 0 30px 0;
+        padding: 20px;
+    }
+    
+    .minimal-container {
+        display: inline-block;
+        position: relative;
+    }
+    
+    .visu-minimal {
+        font-size: 60px;
+        font-weight: 300;
+        letter-spacing: 15px;
+        color: #C0C0C0;
+        margin-bottom: 10px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    .eye-underline {
+        width: 100%;
+        height: 3px;
+        background: linear-gradient(90deg, transparent 0%, #00D2BE 20%, #00D2BE 80%, transparent 100%);
+        position: relative;
+    }
+    
+    .eye-dot {
+        width: 15px;
+        height: 15px;
+        background: #00D2BE;
+        border-radius: 50%;
+        position: absolute;
+        top: -6px;
+        left: 50%;
+        transform: translateX(-50%);
+        box-shadow: 0 0 20px #00D2BE;
+    }
+    
     /* Estilos mobile-friendly */
     .stButton > button {
         width: 100%;
-        background-color: #1a1a1a;
+        background-color: #1a3a3a;
         color: white;
         border: none;
         padding: 15px;
         font-size: 18px;
         border-radius: 10px;
         margin: 10px 0;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        background-color: #00D2BE;
+        box-shadow: 0 4px 15px rgba(0, 210, 190, 0.4);
     }
     
     .stTextInput > div > div > input {
         font-size: 16px;
-        padding: 10px;
+        padding: 12px;
         border-radius: 8px;
-        background-color: #2a2a2a;
+        background-color: #1a2a2a;
         color: white;
-        border: 1px solid #444;
+        border: 1px solid #00D2BE;
+    }
+    
+    .stTextArea > div > div > textarea {
+        font-size: 16px;
+        padding: 12px;
+        border-radius: 8px;
+        background-color: #1a2a2a;
+        color: white;
+        border: 1px solid #00D2BE;
     }
     
     /* Fondo oscuro */
     .main {
-        background-color: #0e0e0e;
+        background-color: #0a0a0a;
         color: white;
     }
     
-    /* Título centrado */
-    h1 {
+    /* Título principal */
+    h2 {
         text-align: center;
         font-size: 24px;
         margin-bottom: 20px;
+        color: #E0E0E0;
     }
     
     /* Tabs personalizados */
@@ -88,14 +144,48 @@ st.markdown("""
     }
     
     .stTabs [aria-selected="true"] {
-        background-color: #333;
-        color: white;
+        background-color: #1a3a3a;
+        color: #00D2BE;
+    }
+    
+    /* Mensajes de éxito y error */
+    .stSuccess {
+        background-color: #0d2626;
+        border: 1px solid #00D2BE;
+        color: #00D2BE;
+    }
+    
+    .stError {
+        background-color: #2a1a1a;
+        border: 1px solid #FF4444;
+    }
+    
+    .stWarning {
+        background-color: #2a2a1a;
+        border: 1px solid #FF8800;
+    }
+    
+    /* Spinner */
+    .stSpinner > div {
+        border-color: #00D2BE;
     }
 </style>
 """, unsafe_allow_html=True)
 
+# Logo VISU
+st.markdown("""
+<div class="visu-logo-container">
+    <div class="minimal-container">
+        <div class="visu-minimal">VISU</div>
+        <div class="eye-underline">
+            <div class="eye-dot"></div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 # Título principal
-st.markdown("<h1>📍 Encontrá donde trabaja el productor</h1>", unsafe_allow_html=True)
+st.markdown("<h2>📍 Encontrá donde trabaja el productor</h2>", unsafe_allow_html=True)
 
 # Función para normalizar CUIT
 def normalizar_cuit(cuit):
@@ -143,6 +233,19 @@ def obtener_datos_por_cuit(cuit):
     except Exception as e:
         return []
 
+# Función para consultar detalles de un campo específico
+def consultar_campo_detalle(renspa):
+    """Consulta los detalles de un campo específico para obtener el polígono"""
+    try:
+        url = f"{API_BASE_URL}/consultaPorNumero?numero={renspa}"
+        
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data
+    except Exception as e:
+        return None
+
 # Función para extraer coordenadas
 def extraer_coordenadas(poligono_str):
     """Extrae coordenadas de un string de polígono"""
@@ -176,7 +279,7 @@ def extraer_coordenadas(poligono_str):
 def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
     """Crea un mapa folium optimizado para móvil"""
     if not folium_disponible:
-        st.warning("Para visualizar mapas, instala folium y streamlit-folium")
+        st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium streamlit-folium")
         return None
     
     # Determinar centro del mapa
@@ -217,7 +320,7 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
         
         # Información del popup simplificada
         popup_text = f"""
-        <div style='font-family: Arial; font-size: 14px;'>
+        <div style='font-family: Arial; font-size: 14px; color: #333;'>
         <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
         <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
         <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha
@@ -278,6 +381,9 @@ with tab1:
                     # Procesar polígonos
                     poligonos = []
                     for campo in campos_activos:
+                        renspa = campo['renspa']
+                        
+                        # Primero intentar con los datos que ya tenemos
                         if 'poligono' in campo and campo['poligono']:
                             coords = extraer_coordenadas(campo['poligono'])
                             if coords:
@@ -288,19 +394,40 @@ with tab1:
                                     'superficie': campo.get('superficie', 0),
                                     'cuit': cuit_normalizado
                                 })
+                                continue
+                        
+                        # Si no tenemos polígono, consultar detalle
+                        resultado_detalle = consultar_campo_detalle(renspa)
+                        
+                        if resultado_detalle and 'items' in resultado_detalle and resultado_detalle['items']:
+                            item_detalle = resultado_detalle['items'][0]
+                            if 'poligono' in item_detalle and item_detalle['poligono']:
+                                coords = extraer_coordenadas(item_detalle['poligono'])
+                                if coords:
+                                    poligonos.append({
+                                        'coords': coords,
+                                        'titular': campo.get('titular', ''),
+                                        'localidad': campo.get('localidad', ''),
+                                        'superficie': item_detalle.get('superficie', 0),
+                                        'cuit': cuit_normalizado
+                                    })
+                        
+                        time.sleep(TIEMPO_ESPERA)
                     
                     if poligonos:
                         st.success(f"Se encontraron {len(poligonos)} campos activos")
                         
                         # Mostrar mapa
-                        mapa = crear_mapa_mobile(poligonos)
-                        if mapa:
-                            folium_static(mapa, width=None, height=500)
+                        if folium_disponible:
+                            mapa = crear_mapa_mobile(poligonos)
+                            if mapa:
+                                folium_static(mapa, width=None, height=500)
+                        else:
+                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
                         
                         # Botón de descarga
-                        if st.button("📥 Descargar KML", key="download_kml"):
-                            # Crear KML
-                            kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+                        # Crear KML
+                        kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
   <name>Campos del productor</name>
@@ -314,9 +441,9 @@ with tab1:
     </PolyStyle>
   </Style>
 """
-                            
-                            for pol in poligonos:
-                                kml_content += f"""
+                        
+                        for pol in poligonos:
+                            kml_content += f"""
   <Placemark>
     <name>{pol['titular']}</name>
     <description>Localidad: {pol['localidad']} - Superficie: {pol['superficie']:.1f} ha</description>
@@ -326,32 +453,32 @@ with tab1:
         <LinearRing>
           <coordinates>
 """
-                                for coord in pol['coords']:
-                                    kml_content += f"{coord[0]},{coord[1]},0\n"
-                                
-                                kml_content += """
+                            for coord in pol['coords']:
+                                kml_content += f"{coord[0]},{coord[1]},0\n"
+                            
+                            kml_content += """
           </coordinates>
         </LinearRing>
       </outerBoundaryIs>
     </Polygon>
   </Placemark>
 """
-                            
-                            kml_content += "</Document></kml>"
-                            
-                            # Crear KMZ
-                            kmz_buffer = BytesIO()
-                            with zipfile.ZipFile(kmz_buffer, 'w', zipfile.ZIP_DEFLATED) as kmz:
-                                kmz.writestr("doc.kml", kml_content)
-                            
-                            kmz_buffer.seek(0)
-                            
-                            st.download_button(
-                                label="💾 Guardar archivo KML",
-                                data=kmz_buffer,
-                                file_name=f"campos_{cuit_normalizado.replace('-', '')}.kmz",
-                                mime="application/vnd.google-earth.kmz",
-                            )
+                        
+                        kml_content += "</Document></kml>"
+                        
+                        # Crear KMZ
+                        kmz_buffer = BytesIO()
+                        with zipfile.ZipFile(kmz_buffer, 'w', zipfile.ZIP_DEFLATED) as kmz:
+                            kmz.writestr("doc.kml", kml_content)
+                        
+                        kmz_buffer.seek(0)
+                        
+                        st.download_button(
+                            label="📥 Descargar KML",
+                            data=kmz_buffer,
+                            file_name=f"campos_{cuit_normalizado.replace('-', '')}.kmz",
+                            mime="application/vnd.google-earth.kmz",
+                        )
                     else:
                         st.warning("No se pudieron obtener las ubicaciones de los campos")
                         
@@ -394,6 +521,7 @@ with tab2:
                             campos_activos = [c for c in campos if c.get('fecha_baja') is None]
                             
                             for campo in campos_activos:
+                                # Intentar extraer polígono de los datos básicos
                                 if 'poligono' in campo and campo['poligono']:
                                     coords = extraer_coordenadas(campo['poligono'])
                                     if coords:
@@ -404,22 +532,42 @@ with tab2:
                                             'superficie': campo.get('superficie', 0),
                                             'cuit': cuit_normalizado
                                         })
+                                        continue
+                                
+                                # Si no hay polígono, consultar detalle
+                                resultado_detalle = consultar_campo_detalle(campo['renspa'])
+                                
+                                if resultado_detalle and 'items' in resultado_detalle and resultado_detalle['items']:
+                                    item_detalle = resultado_detalle['items'][0]
+                                    if 'poligono' in item_detalle and item_detalle['poligono']:
+                                        coords = extraer_coordenadas(item_detalle['poligono'])
+                                        if coords:
+                                            todos_poligonos.append({
+                                                'coords': coords,
+                                                'titular': campo.get('titular', ''),
+                                                'localidad': campo.get('localidad', ''),
+                                                'superficie': item_detalle.get('superficie', 0),
+                                                'cuit': cuit_normalizado
+                                            })
+                                
+                                time.sleep(TIEMPO_ESPERA)
                             
                             cuits_procesados += 1
                             progress_bar.progress((i + 1) / len(cuit_list))
                             
                         except Exception as e:
                             continue
-                        
-                        time.sleep(TIEMPO_ESPERA)
                     
                     if todos_poligonos:
                         st.success(f"Se encontraron {len(todos_poligonos)} campos en total")
                         
                         # Mostrar mapa
-                        mapa = crear_mapa_mobile(todos_poligonos, cuit_colors=cuit_colors)
-                        if mapa:
-                            folium_static(mapa, width=None, height=500)
+                        if folium_disponible:
+                            mapa = crear_mapa_mobile(todos_poligonos, cuit_colors=cuit_colors)
+                            if mapa:
+                                folium_static(mapa, width=None, height=500)
+                        else:
+                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
                     else:
                         st.warning("No se encontraron campos para los CUITs ingresados")
         else:
