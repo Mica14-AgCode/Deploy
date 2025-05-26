@@ -8,9 +8,6 @@ import requests
 import zipfile
 from io import BytesIO
 import random
-from datetime import datetime
-import plotly.graph_objects as go
-import plotly.express as px
 
 # Intentar importar folium y streamlit_folium
 try:
@@ -87,26 +84,6 @@ st.markdown("""
         letter-spacing: 2px;
         margin-top: 15px;
         font-weight: 300;
-    }
-    
-    /* Estilos para mejorar legibilidad en móvil */
-    .stTextInput label {
-        color: #E0E0E0 !important;
-        font-size: 16px !important;
-    }
-    
-    .stRadio label {
-        color: #E0E0E0 !important;
-        font-size: 16px !important;
-    }
-    
-    .stTextArea label {
-        color: #E0E0E0 !important;
-        font-size: 16px !important;
-    }
-    
-    p {
-        color: #E0E0E0 !important;
     }
     
     /* Estilos mobile-friendly */
@@ -305,9 +282,9 @@ def extraer_coordenadas(poligono_str):
     
     return None
 
-# Función para crear mapa optimizado para mobile con leyenda mejorada
+# Función para crear mapa optimizado para mobile
 def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
-    """Crea un mapa folium optimizado para móvil con leyenda desplegable"""
+    """Crea un mapa folium optimizado para móvil"""
     if not folium_disponible:
         st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium streamlit-folium")
         return None
@@ -326,7 +303,7 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
     m = folium.Map(
         location=[center_lat, center_lon], 
         zoom_start=10,
-        zoom_control=True,
+        zoom_control=True,  # Activar controles de zoom
         attributionControl=False,
         prefer_canvas=True
     )
@@ -349,270 +326,59 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
         pass
     
     # Colores disponibles (evitando el verde)
-    colores_base = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
+    colores_disponibles = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
     
-    # Crear grupos para campos activos e históricos
-    fg_activos = folium.FeatureGroup(name='Campos Activos', show=True)
-    fg_historicos = folium.FeatureGroup(name='Campos Históricos', show=True)
+    # Crear un grupo de características para los polígonos
+    fg = folium.FeatureGroup(name='Campos')
     
-    # Agrupar polígonos por razón social y estado
-    titulares_data = {}
-    
+    # Añadir polígonos
     for i, pol in enumerate(poligonos):
-        titular = pol.get('titular', 'Sin información')
-        activo = pol.get('activo', True)
-        cuit = pol.get('cuit', '')
-        
-        # Crear clave única para titular
-        key = f"{titular}_{cuit}"
-        
-        if key not in titulares_data:
-            # Asignar color base para este titular
-            if cuit_colors and cuit in cuit_colors:
-                color_base = cuit_colors[cuit]
-            else:
-                color_base = colores_base[len(titulares_data) % len(colores_base)]
-            
-            titulares_data[key] = {
-                'titular': titular,
-                'cuit': cuit,
-                'color_base': color_base,
-                'activos': [],
-                'historicos': []
-            }
-        
-        # Agregar polígono a la lista correspondiente
-        if activo:
-            titulares_data[key]['activos'].append(pol)
+        # Determinar color
+        if cuit_colors and 'cuit' in pol and pol['cuit'] in cuit_colors:
+            color = cuit_colors[pol['cuit']]
         else:
-            titulares_data[key]['historicos'].append(pol)
-    
-    # Crear leyenda HTML mejorada
-    leyenda_html = '''
-    <div id='leyenda-campos' style='
-        position: fixed;
-        bottom: 30px;
-        right: 10px;
-        width: 280px;
-        background-color: rgba(255, 255, 255, 0.95);
-        border: 2px solid #00D2BE;
-        border-radius: 10px;
-        padding: 10px;
-        font-size: 12px;
-        z-index: 9999;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-        max-height: 400px;
-        overflow-y: auto;
-    '>
-        <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
-            <h4 style='margin: 0; color: #333;'>Leyenda</h4>
-            <button onclick='toggleLeyenda()' style='
-                background: none;
-                border: none;
-                font-size: 16px;
-                cursor: pointer;
-                color: #333;
-            '>▼</button>
-        </div>
-        <div id='leyenda-content' style='display: block;'>
-    '''
-    
-    # Añadir items a la leyenda
-    for key, data in titulares_data.items():
-        color_base = data['color_base']
-        titular = data['titular']
+            color = colores_disponibles[i % len(colores_disponibles)]
         
-        if data['activos']:
-            leyenda_html += f'''
-            <div style='margin: 5px 0;'>
-                <span style='
-                    display: inline-block;
-                    width: 15px;
-                    height: 15px;
-                    background-color: {color_base};
-                    border: 1px solid #333;
-                    margin-right: 5px;
-                    vertical-align: middle;
-                '></span>
-                <span style='color: #333; font-size: 11px;'>{titular} (Activo)</span>
-            </div>
-            '''
+        # Información del popup con fecha de baja si corresponde
+        popup_text = f"""
+        <div style='font-family: Arial; font-size: 14px; color: #333;'>
+        <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
+        <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
+        <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha<br>
+        <b>Estado:</b> {'Activo' if pol.get('activo', True) else 'Inactivo'}
+        """
         
-        if data['historicos']:
-            # Color más claro para históricos
-            color_historico = color_base + '66'  # Agregar transparencia
-            leyenda_html += f'''
-            <div style='margin: 5px 0;'>
-                <span style='
-                    display: inline-block;
-                    width: 15px;
-                    height: 15px;
-                    background-color: {color_historico};
-                    border: 1px dashed #333;
-                    margin-right: 5px;
-                    vertical-align: middle;
-                '></span>
-                <span style='color: #666; font-size: 11px;'>{titular} (Histórico)</span>
-            </div>
-            '''
-    
-    leyenda_html += '''
-        </div>
-    </div>
-    <script>
-    function toggleLeyenda() {
-        var content = document.getElementById('leyenda-content');
-        var button = event.target;
-        if (content.style.display === 'none') {
-            content.style.display = 'block';
-            button.innerHTML = '▼';
-        } else {
-            content.style.display = 'none';
-            button.innerHTML = '▶';
-        }
-    }
-    </script>
-    '''
-    
-    # Añadir polígonos al mapa
-    for key, data in titulares_data.items():
-        color_base = data['color_base']
+        # Si el campo está inactivo, mostrar fecha de baja
+        if not pol.get('activo', True) and pol.get('fecha_baja'):
+            popup_text += f"<br><b>Trabajado hasta:</b> {pol.get('fecha_baja', 'No disponible')}"
         
-        # Campos activos - color sólido
-        for pol in data['activos']:
-            popup_text = f"""
-            <div style='font-family: Arial; font-size: 14px; color: #333;'>
-            <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
-            <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
-            <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha<br>
-            <b>Estado:</b> Activo
-            </div>
-            """
-            
-            folium.Polygon(
-                locations=[[coord[1], coord[0]] for coord in pol['coords']],
-                color=color_base,
-                weight=3,
-                fill=True,
-                fill_color=color_base,
-                fill_opacity=0.5,
-                popup=folium.Popup(popup_text, max_width=200)
-            ).add_to(fg_activos)
+        popup_text += "</div>"
         
-        # Campos históricos - color con transparencia y borde punteado
-        for pol in data['historicos']:
-            popup_text = f"""
-            <div style='font-family: Arial; font-size: 14px; color: #333;'>
-            <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
-            <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
-            <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha<br>
-            <b>Estado:</b> Inactivo<br>
-            <b>Trabajado hasta:</b> {pol.get('fecha_baja', 'No disponible')}
-            </div>
-            """
-            
-            folium.Polygon(
-                locations=[[coord[1], coord[0]] for coord in pol['coords']],
-                color=color_base,
-                weight=2,
-                fill=True,
-                fill_color=color_base,
-                fill_opacity=0.2,  # Menor opacidad para históricos
-                dashArray='5, 5',  # Línea punteada
-                popup=folium.Popup(popup_text, max_width=200)
-            ).add_to(fg_historicos)
+        # Añadir polígono al grupo
+        folium.Polygon(
+            locations=[[coord[1], coord[0]] for coord in pol['coords']],
+            color=color,
+            weight=3,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.4,
+            popup=folium.Popup(popup_text, max_width=200)
+        ).add_to(fg)
     
-    # Añadir los grupos al mapa
-    fg_activos.add_to(m)
-    fg_historicos.add_to(m)
+    # Añadir el grupo al mapa
+    fg.add_to(m)
     
     # Control de capas en posición superior derecha con estilo desplegable
     folium.LayerControl(
         position='topright',
-        collapsed=True,
+        collapsed=True,  # Empezar colapsado
         autoZIndex=True
     ).add_to(m)
     
-    # Añadir la leyenda al mapa
-    m.get_root().html.add_child(folium.Element(leyenda_html))
-    
     return m
 
-# Función para analizar hectáreas a lo largo del tiempo
-def analizar_hectareas_tiempo(campos):
-    """Analiza la evolución de hectáreas activas a lo largo del tiempo"""
-    eventos = []
-    
-    for campo in campos:
-        fecha_alta = campo.get('fecha_alta', None)
-        fecha_baja = campo.get('fecha_baja', None)
-        superficie = campo.get('superficie', 0)
-        
-        # Procesar fecha de alta
-        if fecha_alta:
-            try:
-                # Intentar diferentes formatos de fecha
-                for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%Y/%m/%d']:
-                    try:
-                        fecha = datetime.strptime(fecha_alta.split('T')[0], fmt)
-                        eventos.append({
-                            'fecha': fecha,
-                            'tipo': 'alta',
-                            'superficie': superficie
-                        })
-                        break
-                    except:
-                        continue
-            except:
-                pass
-        
-        # Procesar fecha de baja
-        if fecha_baja:
-            try:
-                for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%Y/%m/%d']:
-                    try:
-                        fecha = datetime.strptime(fecha_baja.split('T')[0], fmt)
-                        eventos.append({
-                            'fecha': fecha,
-                            'tipo': 'baja',
-                            'superficie': superficie
-                        })
-                        break
-                    except:
-                        continue
-            except:
-                pass
-    
-    if not eventos:
-        return None
-    
-    # Ordenar eventos por fecha
-    eventos.sort(key=lambda x: x['fecha'])
-    
-    # Calcular superficie acumulada
-    superficie_acumulada = 0
-    fechas = []
-    superficies = []
-    
-    for evento in eventos:
-        if evento['tipo'] == 'alta':
-            superficie_acumulada += evento['superficie']
-        else:
-            superficie_acumulada -= evento['superficie']
-        
-        fechas.append(evento['fecha'])
-        superficies.append(superficie_acumulada)
-    
-    # Crear DataFrame
-    df = pd.DataFrame({
-        'Fecha': fechas,
-        'Hectáreas': superficies
-    })
-    
-    return df
-
 # Crear tabs
-tab1, tab2, tab3 = st.tabs(["🔍 Buscar por CUIT", "📋 Lista de CUITs", "📊 Gráfico"])
+tab1, tab2 = st.tabs(["🔍 Buscar por CUIT", "📋 Lista de CUITs"])
 
 with tab1:
     cuit_input = st.text_input("Ingresá el CUIT del productor:", 
@@ -638,10 +404,6 @@ with tab1:
                     if not campos:
                         st.error("No se encontraron campos para este CUIT")
                         st.stop()
-                    
-                    # Guardar datos en session state para la pestaña de gráficos
-                    st.session_state['ultimo_cuit'] = cuit_normalizado
-                    st.session_state['ultimos_campos'] = campos
                     
                     # Filtrar según la opción seleccionada
                     if tipo_busqueda == "Solo campos activos":
@@ -709,18 +471,14 @@ with tab1:
                         st.success(f"✅ Se encontraron {len(poligonos)} campos con ubicación ({len(campos_activos)} activos, {len(campos_inactivos)} históricos)")
                         
                         # Mostrar estadísticas
-                        col1, col2, col3, col4 = st.columns(4)
+                        col1, col2, col3 = st.columns(3)
                         with col1:
                             st.metric("Total de campos", len(poligonos))
                         with col2:
                             superficie_total = sum(p.get('superficie', 0) for p in poligonos)
                             st.metric("Superficie total", f"{superficie_total:,.1f} ha")
                         with col3:
-                            superficie_activa = sum(p.get('superficie', 0) for p in campos_activos)
-                            st.metric("Hectáreas activas", f"{superficie_activa:,.1f} ha")
-                        with col4:
-                            superficie_historica = sum(p.get('superficie', 0) for p in campos_inactivos)
-                            st.metric("Hectáreas históricas", f"{superficie_historica:,.1f} ha")
+                            st.metric("Campos activos", len(campos_activos))
                         
                         if poligonos_sin_coords:
                             st.info(f"ℹ️ {len(poligonos_sin_coords)} campos sin coordenadas disponibles")
@@ -743,7 +501,7 @@ with tab1:
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
   <name>Campos del productor</name>
-  <Style id="activePoly">
+  <Style id="redPoly">
     <LineStyle>
       <color>ff0000ff</color>
       <width>3</width>
@@ -752,25 +510,14 @@ with tab1:
       <color>7f0000ff</color>
     </PolyStyle>
   </Style>
-  <Style id="historicPoly">
-    <LineStyle>
-      <color>ff0000ff</color>
-      <width>2</width>
-    </LineStyle>
-    <PolyStyle>
-      <color>3f0000ff</color>
-    </PolyStyle>
-  </Style>
 """
                         
                         for pol in poligonos:
-                            style_id = "activePoly" if pol.get('activo', True) else "historicPoly"
-                            estado = "Activo" if pol.get('activo', True) else "Histórico"
                             kml_content += f"""
   <Placemark>
-    <name>{pol['titular']} ({estado})</name>
-    <description>Localidad: {pol['localidad']} - Superficie: {pol['superficie']:.1f} ha - Estado: {estado}</description>
-    <styleUrl>#{style_id}</styleUrl>
+    <name>{pol['titular']}</name>
+    <description>Localidad: {pol['localidad']} - Superficie: {pol['superficie']:.1f} ha</description>
+    <styleUrl>#redPoly</styleUrl>
     <Polygon>
       <outerBoundaryIs>
         <LinearRing>
@@ -977,183 +724,7 @@ with tab2:
                                 folium_static(mapa, width=None, height=600)
                         else:
                             st.warning("Para visualizar mapas, instala folium y streamlit-folium")
-                        
-                        # Mostrar estadísticas detalladas por CUIT
-                        st.subheader("📊 Estadísticas por productor")
-                        
-                        # Agrupar datos por CUIT
-                        cuits_unicos = list(set(p['cuit'] for p in todos_poligonos))
-                        
-                        for cuit in cuits_unicos:
-                            campos_cuit = [p for p in todos_poligonos if p['cuit'] == cuit]
-                            campos_activos_cuit = [p for p in campos_cuit if p.get('activo', True)]
-                            campos_historicos_cuit = [p for p in campos_cuit if not p.get('activo', True)]
-                            superficie_total_cuit = sum(p.get('superficie', 0) for p in campos_cuit)
-                            superficie_activa_cuit = sum(p.get('superficie', 0) for p in campos_activos_cuit)
-                            superficie_historica_cuit = sum(p.get('superficie', 0) for p in campos_historicos_cuit)
-                            
-                            # Obtener nombre del titular (usar el primero disponible)
-                            titular = campos_cuit[0].get('titular', 'Sin información') if campos_cuit else 'Sin información'
-                            
-                            with st.expander(f"📊 {titular} - CUIT: {cuit}"):
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.metric("Total campos", len(campos_cuit))
-                                    st.metric("Superficie total", f"{superficie_total_cuit:,.1f} ha")
-                                with col2:
-                                    st.metric("Campos activos", len(campos_activos_cuit))
-                                    st.metric("Hectáreas activas", f"{superficie_activa_cuit:,.1f} ha")
-                                with col3:
-                                    st.metric("Campos históricos", len(campos_historicos_cuit))
-                                    st.metric("Hectáreas históricas", f"{superficie_historica_cuit:,.1f} ha")
-                                
-                                # Detalles de campos
-                                if campos_activos_cuit:
-                                    st.write("**Campos Activos:**")
-                                    for campo in campos_activos_cuit:
-                                        st.write(f"• {campo.get('localidad', 'Sin localidad')} - {campo.get('superficie', 0):.1f} ha")
-                                
-                                if campos_historicos_cuit:
-                                    st.write("**Campos Históricos:**")
-                                    for campo in campos_historicos_cuit:
-                                        fecha_baja = campo.get('fecha_baja', 'No disponible')
-                                        st.write(f"• {campo.get('localidad', 'Sin localidad')} - {campo.get('superficie', 0):.1f} ha (hasta {fecha_baja})")
                     else:
                         st.warning("No se encontraron campos para los CUITs ingresados")
         else:
             st.warning("Por favor, ingresá al menos un CUIT")
-
-with tab3:
-    st.subheader("📊 Análisis temporal de hectáreas")
-    
-    # Verificar si hay datos en session state
-    if 'ultimo_cuit' in st.session_state and 'ultimos_campos' in st.session_state:
-        cuit_analisis = st.session_state['ultimo_cuit']
-        campos_analisis = st.session_state['ultimos_campos']
-        
-        if campos_analisis:
-            # Obtener razón social
-            razon_social = campos_analisis[0].get('titular', 'Sin información')
-            
-            st.write(f"**Productor:** {razon_social}")
-            st.write(f"**CUIT:** {cuit_analisis}")
-            
-            # Analizar evolución temporal
-            df_temporal = analizar_hectareas_tiempo(campos_analisis)
-            
-            if df_temporal is not None and not df_temporal.empty:
-                # Crear gráfico interactivo con Plotly
-                fig = go.Figure()
-                
-                # Añadir línea de evolución
-                fig.add_trace(go.Scatter(
-                    x=df_temporal['Fecha'],
-                    y=df_temporal['Hectáreas'],
-                    mode='lines+markers',
-                    name='Hectáreas activas',
-                    line=dict(color='#00D2BE', width=3),
-                    marker=dict(size=8, color='#00D2BE'),
-                    fill='tozeroy',
-                    fillcolor='rgba(0, 210, 190, 0.2)'
-                ))
-                
-                # Configurar layout
-                fig.update_layout(
-                    title={
-                        'text': f'Evolución de hectáreas activas - {razon_social}',
-                        'x': 0.5,
-                        'xanchor': 'center',
-                        'font': {'size': 20, 'color': '#E0E0E0'}
-                    },
-                    xaxis_title='Fecha',
-                    yaxis_title='Hectáreas',
-                    hovermode='x unified',
-                    plot_bgcolor='#1a1a1a',
-                    paper_bgcolor='#0a0a0a',
-                    font=dict(color='#E0E0E0'),
-                    xaxis=dict(
-                        gridcolor='#333333',
-                        showgrid=True,
-                        zeroline=False
-                    ),
-                    yaxis=dict(
-                        gridcolor='#333333',
-                        showgrid=True,
-                        zeroline=True,
-                        zerolinecolor='#666666'
-                    ),
-                    margin=dict(l=50, r=50, t=80, b=50)
-                )
-                
-                # Mostrar gráfico
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Mostrar estadísticas adicionales
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    max_hectareas = df_temporal['Hectáreas'].max()
-                    st.metric("Máximo histórico", f"{max_hectareas:,.1f} ha")
-                with col2:
-                    hectareas_actuales = df_temporal['Hectáreas'].iloc[-1] if not df_temporal.empty else 0
-                    st.metric("Hectáreas actuales", f"{hectareas_actuales:,.1f} ha")
-                with col3:
-                    diferencia = hectareas_actuales - max_hectareas
-                    st.metric("Diferencia vs máximo", f"{diferencia:,.1f} ha")
-                
-                # Tabla con eventos
-                st.subheader("📅 Historial de cambios")
-                
-                eventos_df = []
-                for campo in campos_analisis:
-                    if campo.get('fecha_alta'):
-                        eventos_df.append({
-                            'Fecha': campo.get('fecha_alta', '').split('T')[0],
-                            'Evento': 'Alta',
-                            'Localidad': campo.get('localidad', 'Sin información'),
-                            'Superficie (ha)': campo.get('superficie', 0)
-                        })
-                    
-                    if campo.get('fecha_baja'):
-                        eventos_df.append({
-                            'Fecha': campo.get('fecha_baja', '').split('T')[0],
-                            'Evento': 'Baja',
-                            'Localidad': campo.get('localidad', 'Sin información'),
-                            'Superficie (ha)': campo.get('superficie', 0)
-                        })
-                
-                if eventos_df:
-                    df_eventos = pd.DataFrame(eventos_df)
-                    df_eventos = df_eventos.sort_values('Fecha', ascending=False)
-                    st.dataframe(df_eventos, use_container_width=True, hide_index=True)
-                
-            else:
-                st.warning("No hay suficientes datos temporales para generar el gráfico")
-        else:
-            st.info("No hay datos disponibles para analizar")
-    else:
-        st.info("Primero realizá una búsqueda por CUIT en la pestaña '🔍 Buscar por CUIT' para ver el análisis temporal")
-        
-        # Opción para ingresar CUIT manualmente
-        st.write("---")
-        cuit_grafico = st.text_input("O ingresá un CUIT para analizar:", 
-                                    placeholder="30-12345678-9", 
-                                    key="cuit_grafico")
-        
-        if st.button("📊 Generar Gráfico", key="btn_grafico"):
-            if cuit_grafico:
-                try:
-                    cuit_normalizado = normalizar_cuit(cuit_grafico)
-                    
-                    with st.spinner('Obteniendo datos históricos...'):
-                        campos = obtener_datos_por_cuit(cuit_normalizado)
-                        
-                        if campos:
-                            st.session_state['ultimo_cuit'] = cuit_normalizado
-                            st.session_state['ultimos_campos'] = campos
-                            st.rerun()
-                        else:
-                            st.error("No se encontraron campos para este CUIT")
-                except ValueError:
-                    st.error("CUIT inválido. Verificá el formato.")
-            else:
-                st.warning("Por favor, ingresá un CUIT")
