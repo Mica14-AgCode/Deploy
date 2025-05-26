@@ -290,32 +290,17 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
         center_lat = -34.603722
         center_lon = -58.381592
     
-    # Crear mapa base con controles simplificados
-    m = folium.Map(
-        location=[center_lat, center_lon], 
-        zoom_start=10,
-        zoom_control=False,  # Desactivar controles de zoom
-        attributionControl=False,
-        prefer_canvas=True
-    )
+    # Crear mapa base
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
     
-    # Añadir capas base
+    # Añadir diferentes capas base
     folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
-                    name='Satélite', 
+                    name='Google Hybrid', 
                     attr='Google').add_to(m)
-    folium.TileLayer('OpenStreetMap', name='Mapa').add_to(m)
-    
-    # Añadir buscador de localidades
-    try:
-        from folium.plugins import Geocoder
-        Geocoder(
-            collapsed=True,
-            position='topleft',
-            add_marker=False,
-            placeholder='Buscar localidad...'
-        ).add_to(m)
-    except:
-        pass
+    folium.TileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', 
+                    name='Google Satellite', 
+                    attr='Google').add_to(m)
+    folium.TileLayer('OpenStreetMap', name='OpenStreetMap').add_to(m)
     
     # Colores disponibles (evitando el verde)
     colores_disponibles = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
@@ -328,28 +313,27 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
         else:
             color = colores_disponibles[i % len(colores_disponibles)]
         
-        # Información del popup simplificada
+        # Información del popup
         popup_text = f"""
-        <div style='font-family: Arial; font-size: 14px; color: #333;'>
         <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
         <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
         <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha
-        </div>
         """
         
         # Añadir polígono
         folium.Polygon(
             locations=[[coord[1], coord[0]] for coord in pol['coords']],
             color=color,
-            weight=3,
+            weight=2,
             fill=True,
             fill_color=color,
-            fill_opacity=0.4,
-            popup=folium.Popup(popup_text, max_width=200)
+            fill_opacity=0.3,
+            tooltip=f"Campo: {pol.get('titular', 'Sin información')}",
+            popup=popup_text
         ).add_to(m)
     
-    # Control de capas en posición derecha
-    folium.LayerControl(position='topright', collapsed=False).add_to(m)
+    # Añadir control de capas
+    folium.LayerControl(position='topright').add_to(m)
     
     return m
 
