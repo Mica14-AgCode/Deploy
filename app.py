@@ -1,4 +1,27 @@
 import streamlit as st
+import subprocess
+import sys
+
+# Función para instalar paquetes
+def install_package(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Verificar e instalar dependencias necesarias
+try:
+    import folium
+    from streamlit_folium import folium_static
+except ImportError:
+    st.warning("Instalando librerías necesarias... Esto puede tomar un momento.")
+    try:
+        install_package("folium")
+        install_package("streamlit-folium")
+        st.success("Librerías instaladas! Por favor, recarga la página.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error instalando librerías: {str(e)}")
+        st.stop()
+
+# Ahora importar todas las librerías necesarias
 import pandas as pd
 import numpy as np
 import time
@@ -8,6 +31,9 @@ import requests
 import zipfile
 from io import BytesIO
 import random
+import folium
+from folium.plugins import MeasureControl, MiniMap, MarkerCluster
+from streamlit_folium import folium_static
 
 # Configuración de la página
 st.set_page_config(
@@ -15,15 +41,6 @@ st.set_page_config(
     page_icon="👁",
     layout="wide"
 )
-
-# Intentar importar folium y streamlit_folium
-try:
-    import folium
-    from folium.plugins import MeasureControl, MiniMap, MarkerCluster
-    from streamlit_folium import folium_static
-    folium_disponible = True
-except ImportError:
-    folium_disponible = False
 
 # Configuraciones globales
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
@@ -276,10 +293,6 @@ def extraer_coordenadas(poligono_str):
 # Función para crear mapa optimizado para mobile
 def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
     """Crea un mapa folium optimizado para móvil"""
-    if not folium_disponible:
-        st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium streamlit-folium")
-        return None
-    
     # Determinar centro del mapa
     if center:
         center_lat, center_lon = center
@@ -415,13 +428,12 @@ with tab1:
                         if poligonos_sin_coords:
                             st.info(f"ℹ️ {len(poligonos_sin_coords)} campos sin coordenadas disponibles")
                         
-                        # Mostrar mapa si está disponible
-                        if folium_disponible:
+                        # Mostrar mapa
+                        try:
                             mapa = crear_mapa_mobile(poligonos)
-                            if mapa:
-                                folium_static(mapa, width=None, height=500)
-                        else:
-                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
+                            folium_static(mapa, width=None, height=500)
+                        except Exception as e:
+                            st.error(f"Error al mostrar el mapa: {str(e)}")
                         
                         # Botón de descarga
                         # Crear KML
@@ -568,13 +580,12 @@ with tab2:
                         st.metric("Con errores", len(cuits_con_error))
                     
                     if todos_poligonos:
-                        # Mostrar mapa si está disponible
-                        if folium_disponible:
+                        # Mostrar mapa
+                        try:
                             mapa = crear_mapa_mobile(todos_poligonos, cuit_colors=cuit_colors)
-                            if mapa:
-                                folium_static(mapa, width=None, height=500)
-                        else:
-                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
+                            folium_static(mapa, width=None, height=500)
+                        except Exception as e:
+                            st.error(f"Error al mostrar el mapa: {str(e)}")
                     else:
                         st.warning("No se encontraron campos para los CUITs ingresados")
         else:
