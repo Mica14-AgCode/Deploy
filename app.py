@@ -1,4 +1,73 @@
-import streamlit as st
+                    # Mostrar resumen
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("CUITs procesados", cuits_procesados)
+                    with col2:
+                        st.metric("Campos encontrados", len(todos_poligonos))
+                    with                    else:
+                        st.warning("No se encontraron campos para los CUITs ingresados")
+        else:
+            st.warning("Por favor, ingresá al menos un CUIT")
+
+with tab3:
+    st.write("Buscá campos por ciudad")
+    
+    # Lista de ciudades argentinas comunes (puedes expandir esta lista)
+    ciudades_argentina = [
+        "Buenos Aires", "Córdoba", "Rosario", "Mendoza", "La Plata", "San Miguel de Tucumán",
+        "Mar del Plata", "Salta", "Santa Fe", "San Juan", "Resistencia", "Neuquén",
+        "Santiago del Estero", "Corrientes", "Posadas", "San Salvador de Jujuy",
+        "Bahía Blanca", "Paraná", "Formosa", "San Luis", "La Rioja", "Catamarca",
+        "Río Cuarto", "Concordia", "Comodoro Rivadavia", "San Rafael", "Tandil",
+        "Villa María", "San Nicolás", "Trelew", "Santa Rosa", "Venado Tuerto",
+        "Zárate", "Pergamino", "Rafaela", "Olavarría", "Junín", "Necochea",
+        "Río Gallegos", "Viedma", "Villa Mercedes", "Gualeguaychú", "Reconquista",
+        "Villa Carlos Paz", "Cipolletti", "Campana", "Luján", "Goya", "Oberá",
+        "Concepción del Uruguay", "La Banda", "Tartagal", "San Ramón de la Nueva Orán",
+        "Mercedes", "Chivilcoy", "Azul", "Punta Alta", "San Francisco", "General Roca",
+        "Puerto Madryn", "Presidencia Roque Sáenz Peña", "Balcarce", "Bell Ville",
+        "Termas de Río Hondo", "Río Tercero", "Villas", "Eldorado", "Libertador General San Martín",
+        "Banda del Río Salí", "Casilda", "Cañada de Gómez", "Esperanza", "Puerto Iguazú",
+        "Esquel", "Villa Regina", "Caleta Olivia", "Avellaneda", "Quilmes", "Lanús",
+        "Lomas de Zamora", "Almirante Brown", "La Matanza", "Morón", "Tres de Febrero",
+        "San Isidro", "Vicente López", "San Martín", "Tigre", "Moreno", "Merlo",
+        "Esteban Echeverría", "Pilar", "Escobar", "Florencio Varela", "San Fernando",
+        "Ezeiza", "Ituzaingó", "Hurlingham", "Berazategui", "José C. Paz", "Malvinas Argentinas"
+    ]
+    
+    # Input con autocompletado personalizado
+    ciudad_input = st.text_input(
+        "Empezá a escribir el nombre de la ciudad:",
+        key="ciudad_search",
+        placeholder="Ej: Boli..."
+    )
+    
+    # Filtrar ciudades mientras se escribe
+    if ciudad_input:
+        # Filtrar ciudades que coincidan (case insensitive)
+        ciudades_filtradas = [c for c in ciudades_argentina 
+                             if c.lower().startswith(ciudad_input.lower())]
+        
+        # Mostrar hasta 5 sugerencias
+        if ciudades_filtradas and len(ciudad_input) > 1:
+            st.write("**Sugerencias:**")
+            ciudad_seleccionada = None
+            
+            # Crear botones para cada sugerencia
+            cols = st.columns(min(len(ciudades_filtradas[:5]), 3))
+            for idx, ciudad in enumerate(ciudades_filtradas[:5]):
+                with cols[idx % 3]:
+                    if st.button(f"📍 {ciudad}", key=f"ciudad_{ciudad}"):
+                        ciudad_seleccionada = ciudad
+            
+            # Si se seleccionó una ciudad, buscar
+            if ciudad_seleccionada:
+                st.session_state.ciudad_search = ciudad_seleccion                        # Mostrar mapa nativo de Streamlit
+                        st.subheader("📍 Ubicación de los campos")
+                        if puntos_mapa:
+                            df_mapa = pd.DataFrame(puntos_mapa)
+                            # Asegurar que las columnas tengan los nombres correctos
+                            df_mapa = df_mapa.rename(columns={'lat': 'latitude', 'lon': 'longitudeimport streamlit as st
 import pandas as pd
 import numpy as np
 import time
@@ -15,15 +84,6 @@ st.set_page_config(
     page_icon="👁",
     layout="wide"
 )
-
-# Intentar importar folium y streamlit_folium
-try:
-    import folium
-    from folium.plugins import MeasureControl, MiniMap, MarkerCluster
-    from streamlit_folium import folium_static
-    folium_disponible = True
-except ImportError:
-    folium_disponible = False
 
 # Configuraciones globales
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
@@ -169,6 +229,39 @@ st.markdown("""
     .stSpinner > div {
         border-color: #00D2BE;
     }
+    
+    /* Estilos para las tarjetas de campos */
+    .campo-card {
+        background: linear-gradient(135deg, #1a3a3a 0%, #0d2626 100%);
+        border: 1px solid #00D2BE;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+        box-shadow: 0 4px 6px rgba(0, 210, 190, 0.1);
+    }
+    
+    .campo-title {
+        color: #00D2BE;
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    
+    .campo-info {
+        color: #C0C0C0;
+        font-size: 14px;
+        line-height: 1.6;
+    }
+    
+    .superficie-badge {
+        background-color: #00D2BE;
+        color: #0a0a0a;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-weight: bold;
+        display: inline-block;
+        margin-top: 5px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -273,85 +366,41 @@ def extraer_coordenadas(poligono_str):
     
     return None
 
-# Función para crear mapa optimizado para mobile
-def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
-    """Crea un mapa folium optimizado para móvil"""
-    if not folium_disponible:
-        st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium streamlit-folium")
+# Función para obtener el centro de un polígono
+def obtener_centro_poligono(coords):
+    """Obtiene el centro de un polígono"""
+    if not coords:
         return None
     
-    # Determinar centro del mapa
-    if center:
-        center_lat, center_lon = center
-    elif poligonos:
-        center_lat = poligonos[0]['coords'][0][1]
-        center_lon = poligonos[0]['coords'][0][0]
-    else:
-        center_lat = -34.603722
-        center_lon = -58.381592
-    
-    # Crear mapa base con controles simplificados
-    m = folium.Map(
-        location=[center_lat, center_lon], 
-        zoom_start=10,
-        zoom_control=False,  # Desactivar controles de zoom
-        attributionControl=False,
-        prefer_canvas=True
-    )
-    
-    # Añadir capas base
-    folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
-                    name='Satélite', 
-                    attr='Google').add_to(m)
-    folium.TileLayer('OpenStreetMap', name='Mapa').add_to(m)
-    
-    # Añadir buscador de localidades
-    try:
-        from folium.plugins import Geocoder
-        Geocoder(
-            collapsed=True,
-            position='topleft',
-            add_marker=False,
-            placeholder='Buscar localidad...'
-        ).add_to(m)
-    except:
-        pass
-    
-    # Colores disponibles (evitando el verde)
-    colores_disponibles = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
-    
-    # Añadir polígonos
-    for i, pol in enumerate(poligonos):
-        # Determinar color
-        if cuit_colors and 'cuit' in pol and pol['cuit'] in cuit_colors:
-            color = cuit_colors[pol['cuit']]
-        else:
-            color = colores_disponibles[i % len(colores_disponibles)]
-        
-        # Información del popup simplificada
-        popup_text = f"""
-        <div style='font-family: Arial; font-size: 14px; color: #333;'>
-        <b>Campo:</b> {pol.get('titular', 'Sin información')}<br>
-        <b>Localidad:</b> {pol.get('localidad', 'Sin información')}<br>
-        <b>Superficie:</b> {pol.get('superficie', 0):.1f} ha
+    lats = [c[1] for c in coords]
+    lons = [c[0] for c in coords]
+    return [sum(lats) / len(lats), sum(lons) / len(lons)]
+
+# Función para mostrar campos en tarjetas
+def mostrar_campos_tarjetas(campos_data):
+    """Muestra los campos en formato de tarjetas"""
+    for campo in campos_data:
+        st.markdown(f"""
+        <div class="campo-card">
+            <div class="campo-title">📍 {campo.get('titular', 'Campo sin nombre')}</div>
+            <div class="campo-info">
+                <strong>Localidad:</strong> {campo.get('localidad', 'No especificada')}<br>
+                <strong>Provincia:</strong> {campo.get('provincia', 'No especificada')}
+            </div>
+            <div class="superficie-badge">{campo.get('superficie', 0):.1f} hectáreas</div>
         </div>
-        """
-        
-        # Añadir polígono
-        folium.Polygon(
-            locations=[[coord[1], coord[0]] for coord in pol['coords']],
-            color=color,
-            weight=3,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.4,
-            popup=folium.Popup(popup_text, max_width=200)
-        ).add_to(m)
+        """, unsafe_allow_html=True)
+
+# Función para generar link de Google Maps
+def generar_link_google_maps(coords):
+    """Genera un link para ver el polígono en Google Maps"""
+    if not coords:
+        return None
     
-    # Control de capas en posición derecha
-    folium.LayerControl(position='topright', collapsed=False).add_to(m)
-    
-    return m
+    centro = obtener_centro_poligono(coords)
+    if centro:
+        return f"https://www.google.com/maps/@{centro[0]},{centro[1]},15z"
+    return None
 
 # Crear tabs
 tab1, tab2 = st.tabs(["🔍 Buscar por CUIT", "📋 Lista de CUITs"])
@@ -360,7 +409,15 @@ with tab1:
     cuit_input = st.text_input("Ingresá el CUIT del productor:", 
                               placeholder="30-12345678-9", 
                               key="cuit_single")
-
+    
+    # Opción para elegir entre campos activos o históricos
+    tipo_busqueda = st.radio(
+        "¿Qué campos querés buscar?",
+        ["Solo campos activos", "Todos los campos (incluye históricos)"],
+        key="tipo_busqueda_single",
+        horizontal=True
+    )
+    
     if st.button("🔍 Buscar Campos", key="btn_buscar"):
         if cuit_input:
             try:
@@ -373,16 +430,18 @@ with tab1:
                         st.error("No se encontraron campos para este CUIT")
                         st.stop()
                     
-                    # Filtrar solo campos activos
-                    campos_activos = [c for c in campos if c.get('fecha_baja') is None]
-                    
-                    if not campos_activos:
-                        st.warning("No hay campos activos para este CUIT")
-                        st.stop()
+                    # Filtrar según la opción seleccionada
+                    if tipo_busqueda == "Solo campos activos":
+                        campos_a_procesar = [c for c in campos if c.get('fecha_baja') is None]
+                        if not campos_a_procesar:
+                            st.warning("No hay campos activos para este CUIT")
+                            st.stop()
+                    else:
+                        campos_a_procesar = campos
                     
                     # Procesar polígonos
                     poligonos = []
-                    poligonos_sin_coords = []
+                    puntos_mapa = []
                     
                     for campo in campos_activos:
                         renspa = campo['renspa']
@@ -391,13 +450,20 @@ with tab1:
                         if 'poligono' in campo and campo['poligono']:
                             coords = extraer_coordenadas(campo['poligono'])
                             if coords:
-                                poligonos.append({
-                                    'coords': coords,
-                                    'titular': campo.get('titular', ''),
-                                    'localidad': campo.get('localidad', ''),
-                                    'superficie': campo.get('superficie', 0),
-                                    'cuit': cuit_normalizado
-                                })
+                                centro = obtener_centro_poligono(coords)
+                                if centro:
+                                    poligonos.append({
+                                        'coords': coords,
+                                        'titular': campo.get('titular', ''),
+                                        'localidad': campo.get('localidad', ''),
+                                        'superficie': campo.get('superficie', 0),
+                                        'cuit': cuit_normalizado,
+                                        'centro': centro
+                                    })
+                                    puntos_mapa.append({
+                                        'lat': centro[0],
+                                        'lon': centro[1]
+                                    })
                                 continue
                         
                         # Si no tenemos polígono, consultar detalle
@@ -408,19 +474,20 @@ with tab1:
                             if 'poligono' in item_detalle and item_detalle['poligono']:
                                 coords = extraer_coordenadas(item_detalle['poligono'])
                                 if coords:
-                                    poligonos.append({
-                                        'coords': coords,
-                                        'titular': campo.get('titular', ''),
-                                        'localidad': campo.get('localidad', ''),
-                                        'superficie': item_detalle.get('superficie', 0),
-                                        'cuit': cuit_normalizado
-                                    })
-                                else:
-                                    poligonos_sin_coords.append(campo)
-                            else:
-                                poligonos_sin_coords.append(campo)
-                        else:
-                            poligonos_sin_coords.append(campo)
+                                    centro = obtener_centro_poligono(coords)
+                                    if centro:
+                                        poligonos.append({
+                                            'coords': coords,
+                                            'titular': campo.get('titular', ''),
+                                            'localidad': campo.get('localidad', ''),
+                                            'superficie': item_detalle.get('superficie', 0),
+                                            'cuit': cuit_normalizado,
+                                            'centro': centro
+                                        })
+                                        puntos_mapa.append({
+                                            'lat': centro[0],
+                                            'lon': centro[1]
+                                        })
                         
                         time.sleep(TIEMPO_ESPERA)
                     
@@ -428,19 +495,34 @@ with tab1:
                     if poligonos:
                         st.success(f"✅ Se encontraron {len(poligonos)} campos activos con ubicación")
                         
-                        if poligonos_sin_coords:
-                            st.info(f"ℹ️ {len(poligonos_sin_coords)} campos sin coordenadas disponibles")
+                        # Mostrar mapa nativo de Streamlit
+                        st.subheader("📍 Ubicación de los campos")
+                        if puntos_mapa:
+                            df_mapa = pd.DataFrame(puntos_mapa)
+                            st.map(df_mapa, zoom=8, use_container_width=True)
                         
-                        # Mostrar mapa si está disponible
-                        if folium_disponible:
-                            mapa = crear_mapa_mobile(poligonos)
-                            if mapa:
-                                folium_static(mapa, width=None, height=500)
-                        else:
-                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
+                        # Mostrar información de campos
+                        st.subheader("📋 Detalle de los campos")
+                        col1, col2 = st.columns([2, 1])
                         
-                        # Botón de descarga
-                        # Crear KML
+                        with col1:
+                            for i, campo in enumerate(poligonos):
+                                with st.expander(f"📍 {campo['titular'] or f'Campo {i+1}'} - {campo['superficie']:.1f} ha"):
+                                    st.write(f"**Localidad:** {campo['localidad']}")
+                                    st.write(f"**CUIT:** {campo['cuit']}")
+                                    link = generar_link_google_maps(campo['coords'])
+                                    if link:
+                                        st.markdown(f"[🗺️ Ver en Google Maps]({link})")
+                        
+                        with col2:
+                            # Resumen estadístico
+                            st.metric("Total de campos", len(poligonos))
+                            superficie_total = sum(c.get('superficie', 0) for c in poligonos)
+                            st.metric("Superficie total", f"{superficie_total:.1f} ha")
+                        
+                        # Botón de descarga KML
+                        st.subheader("📥 Descargar datos")
+                        
                         kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
@@ -488,10 +570,11 @@ with tab1:
                         kmz_buffer.seek(0)
                         
                         st.download_button(
-                            label="📥 Descargar KML",
+                            label="📥 Descargar archivo KML",
                             data=kmz_buffer,
                             file_name=f"campos_{cuit_normalizado.replace('-', '')}.kmz",
                             mime="application/vnd.google-earth.kmz",
+                            help="Podés abrir este archivo en Google Earth para ver los polígonos completos"
                         )
                     else:
                         st.warning("No se pudieron obtener las ubicaciones de los campos")
@@ -511,16 +594,21 @@ with tab2:
         key="cuits_input"
     )
     
+    # Opción para elegir entre campos activos o históricos
+    tipo_busqueda_multi = st.radio(
+        "¿Qué campos querés buscar?",
+        ["Solo campos activos", "Todos los campos (incluye históricos)"],
+        key="tipo_busqueda_multi",
+        horizontal=True
+    )
+    
     if st.button("🔍 Buscar Todos", key="btn_buscar_multi"):
         if cuits_input:
             cuit_list = [line.strip() for line in cuits_input.split('\n') if line.strip()]
             
             if cuit_list:
-                # Colores para diferentes CUITs
-                colores = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
-                cuit_colors = {}
-                
                 todos_poligonos = []
+                todos_puntos_mapa = []
                 cuits_procesados = 0
                 cuits_con_error = []
                 
@@ -530,23 +618,35 @@ with tab2:
                     for i, cuit in enumerate(cuit_list):
                         try:
                             cuit_normalizado = normalizar_cuit(cuit)
-                            cuit_colors[cuit_normalizado] = colores[i % len(colores)]
                             
                             campos = obtener_datos_por_cuit(cuit_normalizado)
-                            campos_activos = [c for c in campos if c.get('fecha_baja') is None]
                             
-                            for campo in campos_activos:
+                            # Filtrar según selección
+                            if tipo_busqueda_multi == "Solo campos activos":
+                                campos_a_procesar = [c for c in campos if c.get('fecha_baja') is None]
+                            else:
+                                campos_a_procesar = campos
+                            
+                            for campo in campos_a_procesar:
+                                fecha_baja = campo.get('fecha_baja', None)
                                 # Intentar extraer polígono de los datos básicos
                                 if 'poligono' in campo and campo['poligono']:
                                     coords = extraer_coordenadas(campo['poligono'])
                                     if coords:
-                                        todos_poligonos.append({
-                                            'coords': coords,
-                                            'titular': campo.get('titular', ''),
-                                            'localidad': campo.get('localidad', ''),
-                                            'superficie': campo.get('superficie', 0),
-                                            'cuit': cuit_normalizado
-                                        })
+                                        centro = obtener_centro_poligono(coords)
+                                        if centro:
+                                            todos_poligonos.append({
+                                                'coords': coords,
+                                                'titular': campo.get('titular', ''),
+                                                'localidad': campo.get('localidad', ''),
+                                                'superficie': campo.get('superficie', 0),
+                                                'cuit': cuit_normalizado,
+                                                'centro': centro
+                                            })
+                                            todos_puntos_mapa.append({
+                                                'lat': centro[0],
+                                                'lon': centro[1]
+                                            })
                                         continue
                                 
                                 # Si no hay polígono, consultar detalle
@@ -557,13 +657,20 @@ with tab2:
                                     if 'poligono' in item_detalle and item_detalle['poligono']:
                                         coords = extraer_coordenadas(item_detalle['poligono'])
                                         if coords:
-                                            todos_poligonos.append({
-                                                'coords': coords,
-                                                'titular': campo.get('titular', ''),
-                                                'localidad': campo.get('localidad', ''),
-                                                'superficie': item_detalle.get('superficie', 0),
-                                                'cuit': cuit_normalizado
-                                            })
+                                            centro = obtener_centro_poligono(coords)
+                                            if centro:
+                                                todos_poligonos.append({
+                                                    'coords': coords,
+                                                    'titular': campo.get('titular', ''),
+                                                    'localidad': campo.get('localidad', ''),
+                                                    'superficie': item_detalle.get('superficie', 0),
+                                                    'cuit': cuit_normalizado,
+                                                    'centro': centro
+                                                })
+                                                todos_puntos_mapa.append({
+                                                    'lat': centro[0],
+                                                    'lon': centro[1]
+                                                })
                                 
                                 time.sleep(TIEMPO_ESPERA)
                             
@@ -575,22 +682,108 @@ with tab2:
                             continue
                     
                     # Mostrar resumen
+                    st.subheader("📊 Resumen del procesamiento")
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         st.metric("CUITs procesados", cuits_procesados)
                     with col2:
                         st.metric("Campos encontrados", len(todos_poligonos))
                     with col3:
-                        st.metric("Con errores", len(cuits_con_error))
+                        superficie_total = sum(c.get('superficie', 0) for c in todos_poligonos)
+                        st.metric("Superficie total", f"{superficie_total:.1f} ha")
                     
                     if todos_poligonos:
-                        # Mostrar mapa si está disponible
-                        if folium_disponible:
-                            mapa = crear_mapa_mobile(todos_poligonos, cuit_colors=cuit_colors)
-                            if mapa:
-                                folium_static(mapa, width=None, height=500)
-                        else:
-                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
+                        # Mostrar mapa con todos los puntos
+                        st.subheader("📍 Ubicación de todos los campos")
+                        if todos_puntos_mapa:
+                            df_mapa = pd.DataFrame(todos_puntos_mapa)
+                            st.map(df_mapa, zoom=6, use_container_width=True)
+                        
+                        # Agrupar por CUIT
+                        st.subheader("📋 Campos por productor")
+                        
+                        cuits_unicos = list(set(c['cuit'] for c in todos_poligonos))
+                        for cuit in cuits_unicos:
+                            campos_cuit = [c for c in todos_poligonos if c['cuit'] == cuit]
+                            superficie_cuit = sum(c.get('superficie', 0) for c in campos_cuit)
+                            
+                            with st.expander(f"CUIT: {cuit} - {len(campos_cuit)} campos - {superficie_cuit:.1f} ha total"):
+                                for campo in campos_cuit:
+                                    st.write(f"**📍 {campo['titular']}**")
+                                    st.write(f"Localidad: {campo['localidad']} | Superficie: {campo['superficie']:.1f} ha")
+                                    link = generar_link_google_maps(campo['coords'])
+                                    if link:
+                                        st.markdown(f"[Ver en Google Maps]({link})")
+                                    st.divider()
+                        
+                        # Descargar KML con todos los campos
+                        st.subheader("📥 Descargar todos los campos")
+                        
+                        kml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>Campos múltiples productores</name>
+"""
+                        
+                        # Colores para diferentes CUITs
+                        colores_kml = ['ff0000ff', 'ffff0000', 'ff00ff00', 'ffffff00', 'ffff00ff', 'ff00ffff']
+                        cuit_color_map = {cuit: colores_kml[i % len(colores_kml)] for i, cuit in enumerate(cuits_unicos)}
+                        
+                        # Crear estilos
+                        for cuit, color in cuit_color_map.items():
+                            cuit_clean = cuit.replace('-', '_')
+                            kml_content += f"""
+  <Style id="style_{cuit_clean}">
+    <LineStyle>
+      <color>{color}</color>
+      <width>3</width>
+    </LineStyle>
+    <PolyStyle>
+      <color>7f{color[2:]}</color>
+    </PolyStyle>
+  </Style>
+"""
+                        
+                        # Añadir placemarks
+                        for campo in todos_poligonos:
+                            cuit_clean = campo['cuit'].replace('-', '_')
+                            kml_content += f"""
+  <Placemark>
+    <name>{campo['titular']}</name>
+    <description>CUIT: {campo['cuit']} - Localidad: {campo['localidad']} - Superficie: {campo['superficie']:.1f} ha</description>
+    <styleUrl>#style_{cuit_clean}</styleUrl>
+    <Polygon>
+      <outerBoundaryIs>
+        <LinearRing>
+          <coordinates>
+"""
+                            for coord in campo['coords']:
+                                kml_content += f"{coord[0]},{coord[1]},0\n"
+                            
+                            kml_content += """
+          </coordinates>
+        </LinearRing>
+      </outerBoundaryIs>
+    </Polygon>
+  </Placemark>
+"""
+                        
+                        kml_content += "</Document></kml>"
+                        
+                        # Crear KMZ
+                        kmz_buffer = BytesIO()
+                        with zipfile.ZipFile(kmz_buffer, 'w', zipfile.ZIP_DEFLATED) as kmz:
+                            kmz.writestr("doc.kml", kml_content)
+                        
+                        kmz_buffer.seek(0)
+                        
+                        st.download_button(
+                            label="📥 Descargar archivo KML con todos los campos",
+                            data=kmz_buffer,
+                            file_name="campos_multiples.kmz",
+                            mime="application/vnd.google-earth.kmz",
+                            help="Podés abrir este archivo en Google Earth para ver todos los polígonos"
+                        )
                     else:
                         st.warning("No se encontraron campos para los CUITs ingresados")
         else:
