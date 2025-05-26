@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -17,21 +16,14 @@ st.set_page_config(
     layout="wide"
 )
 
-# Verificar si las librerías del mapa están instaladas
+# Intentar importar folium y streamlit_folium
 try:
     import folium
+    from folium.plugins import MeasureControl, MiniMap, MarkerCluster
     from streamlit_folium import folium_static
-    MAPA_DISPONIBLE = True
+    folium_disponible = True
 except ImportError:
-    MAPA_DISPONIBLE = False
-    st.error("""
-    ⚠️ **Librerías de mapas no instaladas**
-    
-    Para visualizar los mapas, ejecutá en la terminal:
-    ```
-    pip install folium streamlit-folium
-    ```
-    """)
+    folium_disponible = False
 
 # Configuraciones globales
 API_BASE_URL = "https://aps.senasa.gob.ar/restapiprod/servicios/renspa"
@@ -87,7 +79,7 @@ st.markdown("""
     
     .tagline {
         font-size: 16px;
-        color: #00D2BE;
+        color: #C0C0C0;
         letter-spacing: 2px;
         margin-top: 15px;
         font-weight: 300;
@@ -284,7 +276,8 @@ def extraer_coordenadas(poligono_str):
 # Función para crear mapa optimizado para mobile
 def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
     """Crea un mapa folium optimizado para móvil"""
-    if not MAPA_DISPONIBLE:
+    if not folium_disponible:
+        st.warning("Para visualizar mapas, instala folium y streamlit-folium con: pip install folium streamlit-folium")
         return None
     
     # Determinar centro del mapa
@@ -309,11 +302,20 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
     # Añadir capas base
     folium.TileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', 
                     name='Satélite', 
-                    attr='Google',
-                    control=True).add_to(m)
-    folium.TileLayer('OpenStreetMap', 
-                    name='Mapa',
-                    control=True).add_to(m)
+                    attr='Google').add_to(m)
+    folium.TileLayer('OpenStreetMap', name='Mapa').add_to(m)
+    
+    # Añadir buscador de localidades
+    try:
+        from folium.plugins import Geocoder
+        Geocoder(
+            collapsed=True,
+            position='topleft',
+            add_marker=False,
+            placeholder='Buscar localidad...'
+        ).add_to(m)
+    except:
+        pass
     
     # Colores disponibles (evitando el verde)
     colores_disponibles = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
@@ -345,18 +347,6 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
             fill_opacity=0.4,
             popup=folium.Popup(popup_text, max_width=200)
         ).add_to(m)
-    
-    # Añadir buscador de localidades (solo si está disponible)
-    try:
-        from folium.plugins import Geocoder
-        Geocoder(
-            collapsed=True,
-            position='topleft',
-            add_marker=False,
-            placeholder='Buscar localidad...'
-        ).add_to(m)
-    except:
-        pass
     
     # Control de capas en posición derecha
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
@@ -442,10 +432,12 @@ with tab1:
                             st.info(f"ℹ️ {len(poligonos_sin_coords)} campos sin coordenadas disponibles")
                         
                         # Mostrar mapa si está disponible
-                        if MAPA_DISPONIBLE:
+                        if folium_disponible:
                             mapa = crear_mapa_mobile(poligonos)
                             if mapa:
                                 folium_static(mapa, width=None, height=500)
+                        else:
+                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
                         
                         # Botón de descarga
                         # Crear KML
@@ -593,10 +585,12 @@ with tab2:
                     
                     if todos_poligonos:
                         # Mostrar mapa si está disponible
-                        if MAPA_DISPONIBLE:
+                        if folium_disponible:
                             mapa = crear_mapa_mobile(todos_poligonos, cuit_colors=cuit_colors)
                             if mapa:
                                 folium_static(mapa, width=None, height=500)
+                        else:
+                            st.warning("Para visualizar mapas, instala folium y streamlit-folium")
                     else:
                         st.warning("No se encontraron campos para los CUITs ingresados")
         else:
