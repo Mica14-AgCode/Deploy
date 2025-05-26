@@ -328,16 +328,40 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
     # Colores disponibles (evitando el verde)
     colores_disponibles = ['#FF4444', '#4444FF', '#FF8800', '#AA00FF', '#FF00AA', '#00AAFF']
     
+    # Si no hay cuit_colors (búsqueda simple), usar el primer color para todos
+    if not cuit_colors:
+        color_default = colores_disponibles[0]  # Rojo por defecto
+        cuit_colors = {}
+        if poligonos:
+            # Obtener el CUIT del primer polígono y asignar el color
+            primer_cuit = poligonos[0].get('cuit')
+            if primer_cuit:
+                cuit_colors[primer_cuit] = color_default
+    
     # Crear un grupo de características para los polígonos
     fg = folium.FeatureGroup(name='Campos')
     
     # Añadir polígonos
-    for i, pol in enumerate(poligonos):
-        # Determinar color
-        if cuit_colors and 'cuit' in pol and pol['cuit'] in cuit_colors:
-            color = cuit_colors[pol['cuit']]
+    for pol in poligonos:
+        # Determinar color base según CUIT
+        cuit_actual = pol.get('cuit')
+        if cuit_actual and cuit_actual in cuit_colors:
+            color_base = cuit_colors[cuit_actual]
         else:
-            color = colores_disponibles[i % len(colores_disponibles)]
+            # Si por alguna razón no está en cuit_colors, usar el primer color
+            color_base = colores_disponibles[0]
+        
+        # Ajustar opacidad según si el campo está activo o no
+        if pol.get('activo', True):
+            # Campo activo: color fuerte
+            color = color_base
+            fill_opacity = 0.5
+            weight = 3
+        else:
+            # Campo histórico: mismo color pero más transparente
+            color = color_base
+            fill_opacity = 0.2  # Menor opacidad para campos históricos
+            weight = 2
         
         # Información del popup con fecha de baja si corresponde
         popup_text = f"""
@@ -358,10 +382,10 @@ def crear_mapa_mobile(poligonos, center=None, cuit_colors=None):
         folium.Polygon(
             locations=[[coord[1], coord[0]] for coord in pol['coords']],
             color=color,
-            weight=3,
+            weight=weight,
             fill=True,
             fill_color=color,
-            fill_opacity=0.4,
+            fill_opacity=fill_opacity,
             popup=folium.Popup(popup_text, max_width=200)
         ).add_to(fg)
     
