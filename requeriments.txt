@@ -2,5 +2,5 @@ streamlit
 pandas
 numpy
 requests
-folium
-streamlit-folium
+folium==0.19.6
+streamlit-folium==0.25.0
